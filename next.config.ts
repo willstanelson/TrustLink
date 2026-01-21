@@ -1,48 +1,20 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // 1. PERFORMANCE: Reduce memory usage
-  productionBrowserSourceMaps: false,
-  reactStrictMode: false, 
+  /* config options here */
   
-  // 2. LINTING: Don't fail build on warnings (Save RAM)
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
-  
-  // 3. XMTP FIX: Prevent server from crashing on encryption files
-  // (This handles the ENOENT error you saw)
-  serverExternalPackages: ["@xmtp/user-preferences-bindings-wasm"],
+  // 1. Fix for Next.js 16 Turbopack conflict
+  turbopack: {},
 
-  // 4. WEBPACK CONFIGURATION
+  // 2. Web3 Polyfills (Required for Wagmi/RainbowKit)
   webpack: (config) => {
-    // A. Ignore React Native stuff (Fixes import errors)
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@react-native-async-storage/async-storage': false,
-      'react-native': false,
-    };
-    
-    // B. Fix file system access
-    config.resolve.fallback = { 
-      fs: false, 
-      net: false, 
-      tls: false 
-    };
-
-    // C. Allow WebAssembly (WASM) to load
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true,
-      layers: true,
-    };
-
-    // D. Exclude XMTP WASM from asset processing
-    config.module.rules.push({
-      test: /\.wasm$/,
-      type: "asset/resource",
-    });
-
+    config.externals.push("pino-pretty", "lokijs", "encoding");
     return config;
+  },
+  
+  // 3. Ignore Typescript errors during build to prevent Vercel from failing on small things
+  typescript: {
+    ignoreBuildErrors: true,
   },
 };
 
