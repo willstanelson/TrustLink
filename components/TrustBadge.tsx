@@ -29,7 +29,7 @@ export default function TrustBadge({ address }: { address: string }) {
       let volumeUSD = 0;
 
       if (orders && orders.length > 0) {
-        orders.forEach(order => {
+        orders.forEach((order: any) => {
           // Note: This assumes 'amount' in DB is stored as the raw number string (e.g. "1000000" for 1 USDC)
           // If your DB stores human-readable numbers (e.g. 1.0), remove the formatUnits part.
           

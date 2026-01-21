@@ -9,7 +9,7 @@ type Tab = 'wallets' | 'profile' | 'settings';
 
 export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { user, logout, linkGoogle, linkTwitter, linkEmail, unlinkGoogle, unlinkTwitter, unlinkEmail, exportWallet } = usePrivy();
-  const { wallet: activeWallet } = usePrivyWagmi();
+  const { activeWallet } = usePrivyWagmi();
   const { data: balance } = useBalance({ address: activeWallet?.address as `0x${string}` });
   
   const [activeTab, setActiveTab] = useState<Tab>('wallets');
