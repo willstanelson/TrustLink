@@ -20,8 +20,9 @@ const ERC20_ABI = [
 export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { user, logout, linkGoogle, linkTwitter, linkEmail, unlinkGoogle, unlinkTwitter, unlinkEmail, exportWallet } = usePrivy();
   
-  // FIX: Safe Address Handling
-  const address = user?.wallet?.address as `0x${string}` | undefined;
+const { address: wagmiAddress } = useAccount();
+  // Prefer Privy user wallet, fallback to Wagmi connected address
+  const address = (user?.wallet?.address || wagmiAddress) as `0x${string}` | undefined;
   
   // State
   const [activeTab, setActiveTab] = useState<Tab>('wallets');

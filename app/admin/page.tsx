@@ -1,14 +1,46 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import { Loader2, CheckCircle, ShieldAlert } from 'lucide-react';
+import { Loader2, CheckCircle, ShieldAlert, Lock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
+// 🔒 SECURITY: ONLY THIS ADDRESS CAN VIEW THE PAGE
+const ADMIN_WALLET = "0xefd09435E4c6cB6E3d0B40EC501e4FADdCEA0698".toLowerCase();
+
 export default function AdminPage() {
+  const { address, isConnected } = useAccount();
+  const router = useRouter();
+  const [isAuthorized, setIsAuthorized] = useState(false);
+
+  // 🔒 AUTH CHECK
+  useEffect(() => {
+    if (!isConnected) return;
+    if (address && address.toLowerCase() === ADMIN_WALLET) {
+        setIsAuthorized(true);
+    } else {
+        setIsAuthorized(false);
+    }
+  }, [address, isConnected]);
+
+  // If not authorized, show Access Denied
+  if (!isConnected || !isAuthorized) {
+      return (
+          <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center text-white">
+              <Lock className="w-16 h-16 text-red-500 mb-4" />
+              <h1 className="text-3xl font-bold">Access Denied</h1>
+              <p className="text-slate-400 mt-2">You do not have permission to view this command center.</p>
+              <button onClick={() => router.push('/')} className="mt-6 bg-slate-800 hover:bg-slate-700 px-6 py-2 rounded-lg font-bold">Go Home</button>
+          </div>
+      );
+  }
+
+  // ... (REST OF THE DASHBOARD CODE REMAINS THE SAME, PASTE IT BELOW)
+  
   // State
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'DISPUTED'>('ALL');
   const [adminAction, setAdminAction] = useState<{ id: bigint, type: 'RELEASE' | 'REFUND' | 'DISPUTE' } | null>(null);
@@ -62,8 +94,6 @@ export default function AdminPage() {
         adminAction.type === 'REFUND' ? 'cancelOrder' : 
         'raiseDispute';
 
-    // ✅ FIX: "100" is a placeholder. In a real app, you'd fetch the specific order amount.
-    // For now, this allows the release to go through for testing.
     const args = adminAction.type === 'RELEASE' 
         ? [adminAction.id, BigInt(100)] 
         : [adminAction.id];
@@ -72,7 +102,7 @@ export default function AdminPage() {
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
       functionName: functionName,
-      args: args as any // ✅ THE FIX: Cast to 'any' to satisfy strict TypeScript tuple checks
+      args: args as any 
     });
   };
 
