@@ -9,9 +9,9 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { parseUnits, formatEther, formatUnits } from 'viem';
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from './constants';
+import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
 import React, { useEffect, useState, useMemo } from 'react';
-import { supabase } from '../lib/supabaseClient'; 
+import { supabase } from '@/lib/supabaseClient';
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Network, Wallet, 
   ChevronDown, X, CheckCircle2 
