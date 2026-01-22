@@ -1,287 +1,230 @@
 'use client';
 
-// ==========================================
-// 1. IMPORTS
-// ==========================================
-import OrderCard from '@/components/OrderCard';
-import WalletModal from '@/components/WalletModal';
-import { usePrivy } from '@privy-io/react-auth';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
-import { parseUnits, formatEther, formatUnits } from 'viem';
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import React, { useEffect, useState, useMemo } from 'react';
-import { supabase } from '@/lib/supabaseClient'; 
-import { 
-  Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Network, Wallet, 
-  ChevronDown, X, CheckCircle2 
-} from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { formatEther, formatUnits } from 'viem';
+import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants'; // ✅ Imports the fixed types
+import { Loader2, CheckCircle, XCircle, AlertTriangle, Search, ShieldAlert, ArrowUpRight } from 'lucide-react';
 
-// --- CONSTANTS ---
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const ERC20_ABI = [
-  { inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], name: 'allowance', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' },
-  { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable', type: 'function' }
-];
 
-const ASSETS = [
-  { symbol: 'ETH', name: 'Ethereum', type: 'native', icon: 'bg-slate-700', address: ZERO_ADDRESS, decimals: 18 },
-  { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
-];
+export default function AdminPage() {
+  // State
+  const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'DISPUTED'>('ALL');
+  const [adminAction, setAdminAction] = useState<{ id: bigint, type: 'RELEASE' | 'REFUND' | 'DISPUTE' } | null>(null);
 
-export default function Home() {
-  // ==========================================
-  // 2. STATE & HOOKS
-  // ==========================================
-  const { login, authenticated, user, logout } = usePrivy();
-  const { chain } = useAccount();
-  const { switchChain } = useSwitchChain();
-  
-  const [sellerAddress, setSellerAddress] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-  const [dbOrders, setDbOrders] = useState<Record<number, any>>({});
-  const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying'); 
-  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-  const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
-  const [isTokenListOpen, setIsTokenListOpen] = useState(false);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
-
-  // Blockchain Transaction State
-  const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
-
-  // Clear toast after 4s
-  useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
-  
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
-
-  // Handle Transaction Success
-  useEffect(() => {
-    if (isSuccess) {
-        showToast("Transaction Confirmed!", 'success');
-        setSellerAddress('');
-        setAmountInput('');
-        handleRefresh();
-    }
-  }, [isSuccess]);
-
-  const userAddress = user?.wallet?.address;
-  const isWrongNetwork = authenticated && chain && chain.id !== sepolia.id;
-
-  // ==========================================
-  // 3. DATA FETCHING
-  // ==========================================
-  const fetchDbOrders = async () => {
-    const { data } = await supabase.from('escrow_orders').select('*');
-    if (data) {
-      const map: Record<number, any> = {};
-      data.forEach((row: any) => { map[row.id] = row; });
-      setDbOrders(map);
-    }
-  };
-  
-  useEffect(() => { fetchDbOrders(); }, []);
-
-  // Balances
-  const { data: ethBalance, refetch: refetchEth } = useBalance({ address: userAddress as `0x${string}` });
-  const { data: usdcAllowance, refetch: refetchAllowance } = useReadContract({
-    address: ASSETS[1].address as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance',
-    args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS as `0x${string}`] : undefined,
-    query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
-  });
-
-  // Fetch Orders from Contract
-  const { data: totalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
-  const count = totalEscrows ? Number(totalEscrows) : 0;
-  
-  // Get last 10 orders
-  const indexesToFetch = useMemo(() => {
-    const idxs = [];
-    for (let i = count; i > 0 && i > count - 10; i--) idxs.push(i);
-    return idxs;
-  }, [count]);
-
-  const { data: escrowsData, refetch: refetchOrders } = useReadContracts({
-    contracts: indexesToFetch.map((id) => ({ 
-    abi: CONTRACT_ABI, 
-    address: CONTRACT_ADDRESS as `0x${string}`, 
-    functionName: 'escrows', 
-    args: [BigInt(id)] 
-})),
+  // 1. Fetch Total Count
+  const { data: totalEscrows } = useReadContract({
+    abi: CONTRACT_ABI,
+    address: CONTRACT_ADDRESS,
+    functionName: 'escrowCount',
     query: { refetchInterval: 5000 }
   });
 
-  const handleRefresh = () => { refetchEth(); refetchOrders(); refetchAllowance(); fetchDbOrders(); };
+  const count = totalEscrows ? Number(totalEscrows) : 0;
 
-  // Parse Orders
-  const { myBuyingOrders, mySellingOrders } = useMemo(() => {
-    const buying: any[] = [];
-    const selling: any[] = [];
-    
-    if (escrowsData && userAddress) {
-      escrowsData.forEach((result, index) => {
-        if (result.status === 'success' && result.result) {
-          const escrow = result.result as any;
-          const id = indexesToFetch[index];
-          const buyer = String(escrow[1]);
-          const seller = String(escrow[2]);
-          const tokenAddr = String(escrow[3]); 
-          const totalAmount = BigInt(escrow[4]);
-          const lockedBalance = BigInt(escrow[5]);
-          const chainDisputed = escrow[8];
-          const chainCompleted = escrow[9];
+  // 2. Prepare Indexes (Fetch all orders for Admin)
+  const indexesToFetch = useMemo(() => {
+    const idxs = [];
+    for (let i = count; i > 0; i--) idxs.push(i); // Fetch newest first
+    return idxs;
+  }, [count]);
 
-          const dbOrder = dbOrders[id];
-          const isAccepted = dbOrder?.status === 'accepted' || dbOrder?.status === 'shipped' || escrow[6];
-          const isShipped = dbOrder?.status === 'shipped' || escrow[7];
-          
-          const paidAmount = totalAmount - lockedBalance;
-          const isEth = tokenAddr === ZERO_ADDRESS;
-          const percentPaid = totalAmount > BigInt(0) ? Number((paidAmount * BigInt(100)) / totalAmount) : 0;
+  // 3. Fetch All Orders
+  const { data: escrowsData, refetch } = useReadContracts({
+    contracts: indexesToFetch.map((id) => ({
+      abi: CONTRACT_ABI,
+      address: CONTRACT_ADDRESS,
+      functionName: 'escrows',
+      args: [BigInt(id)]
+    })),
+    query: { refetchInterval: 10000 } // Refresh every 10s
+  });
 
-          let status = "ACTIVE";
-          let statusColor = "bg-emerald-500/20 text-emerald-400";
-          if (chainCompleted) { status = "COMPLETED"; statusColor = "bg-slate-700 text-slate-300"; }
-          else if (chainDisputed) { status = "DISPUTED"; statusColor = "bg-red-500/20 text-red-400"; }
-          else if (!isAccepted) { status = "WAITING ACCEPTANCE"; statusColor = "bg-yellow-500/20 text-yellow-400"; }
-          else if (isShipped) { status = "SHIPPED"; statusColor = "bg-blue-500/20 text-blue-400"; }
+  // 4. Admin Actions (Write Contract)
+  const { writeContract, data: txHash, isPending } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-          const order = {
-            id, buyer, seller, token: tokenAddr, amount: totalAmount, lockedBalance,
-            isAccepted, isShipped, isDisputed: chainDisputed, isCompleted: chainCompleted,
-            status, statusColor,
-            token_symbol: isEth ? 'ETH' : 'USDC',
-            formattedTotal: isEth ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
-            formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
-            percentPaid
-          };
-
-          if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
-          if (seller.toLowerCase() === userAddress.toLowerCase()) selling.push(order);
-        }
-      });
+  useEffect(() => {
+    if (isSuccess) {
+      alert("Admin Action Completed Successfully!");
+      setAdminAction(null);
+      refetch();
     }
-    return { myBuyingOrders: buying, mySellingOrders: selling };
-  }, [escrowsData, userAddress, indexesToFetch, dbOrders]);
+  }, [isSuccess]);
 
-// ==========================================
-  // 4. MAIN ACTIONS (DEPOSIT)
-  // ==========================================
-  const handleCreateTransaction = async () => {
-    if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
-    if (!sellerAddress || !amountInput) return;
-    try {
-      const isEth = selectedAsset.symbol === 'ETH';
-      const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
+  // Execute Action
+  const executeAdminAction = () => {
+    if (!adminAction) return;
+    
+    // NOTE: These function names must match your Smart Contract exactly.
+    // Standard Escrows usually have 'releaseMilestone', 'refundBuyer', or 'resolveDispute'
+    const functionName = 
+        adminAction.type === 'RELEASE' ? 'releaseMilestone' : 
+        adminAction.type === 'REFUND' ? 'cancelOrder' : // Assuming cancel refunds buyer
+        'raiseDispute';
 
-      // 1. Approve USDC if needed
-      if (!isEth) {
-        const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
-        if (currentAllowance < amountWei) {
-          writeContract({ 
-            address: selectedAsset.address as `0x${string}`, 
-            abi: ERC20_ABI, 
-            functionName: 'approve', // <--- Fixed: Now actually calls Approve
-            args: [CONTRACT_ADDRESS as `0x${string}`, amountWei] 
-          });
-          showToast("Approval Request Sent...", 'info');
-          return;
-        }
-      }
+    // For Release/Refund, we typically pass the ID. 
+    // If your contract needs amount for release, we'd pass that too.
+    // Adjust args based on your specific Solidity functions.
+    
+    // Example Assumption: releaseMilestone(id, amount)
+    // If your contract is simpler, adjust args below.
+    const args = adminAction.type === 'RELEASE' 
+        ? [adminAction.id, BigInt(100)] // 100% Release dummy arg (Check your contract!)
+        : [adminAction.id];
 
-      // 2. Create Escrow (With Strict Types for Vercel)
-      writeContract({ 
-        address: CONTRACT_ADDRESS, 
-        abi: CONTRACT_ABI, 
-        functionName: 'createEscrow', 
-        args: [
-            sellerAddress as `0x${string}`,       // <--- Fixed: Strict Type
-            selectedAsset.address as `0x${string}`, // <--- Fixed: Strict Type
-            amountWei
-        ], 
-        value: isEth ? amountWei : BigInt(0) 
-      });
-      showToast("Deposit Request Sent...", 'info');
-    } catch (err: any) { showToast("Error: " + err.message, 'error'); }
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
+      functionName: functionName,
+      args: args
+    });
   };
 
-  // ==========================================
-  // 5. RENDER
-  // ==========================================
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
-      <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
+  // 5. Parse Data
+  const orders = useMemo(() => {
+    if (!escrowsData) return [];
+    return escrowsData.map((result, index) => {
+      if (result.status !== 'success') return null;
+      const e = result.result as any;
+      const id = indexesToFetch[index];
+      
+      const tokenAddr = String(e[3]);
+      const isEth = tokenAddr === ZERO_ADDRESS;
+      const totalAmount = BigInt(e[4]);
+      
+      return {
+        id,
+        buyer: String(e[1]),
+        seller: String(e[2]),
+        amount: isEth ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
+        symbol: isEth ? 'ETH' : 'USDC',
+        isDisputed: e[8],
+        isCompleted: e[9],
+        status: e[9] ? 'COMPLETED' : e[8] ? 'DISPUTED' : 'ACTIVE'
+      };
+    }).filter(Boolean); // Remove nulls
+  }, [escrowsData, indexesToFetch]);
 
-      {/* TOAST */}
-      {notification && (
-        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
-            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-            <p className="text-sm font-bold">{notification.message}</p>
+  // Filter View
+  const filteredOrders = orders.filter((o: any) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'ACTIVE') return o.status === 'ACTIVE';
+    if (filter === 'DISPUTED') return o.status === 'DISPUTED';
+    return true;
+  });
+
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-white p-8 font-sans">
+      
+      {/* HEADER */}
+      <div className="max-w-7xl mx-auto flex items-center justify-between mb-10">
+        <div>
+           <h1 className="text-3xl font-bold flex items-center gap-3">
+             <ShieldAlert className="text-emerald-500" /> Admin Command Center
+           </h1>
+           <p className="text-slate-400 text-sm mt-1">Monitor transactions and intervene in disputes.</p>
         </div>
+        <div className="flex gap-4">
+           <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+              <div className="text-xs text-slate-500 font-bold uppercase">Total Volume</div>
+              <div className="text-2xl font-bold text-white">{count} <span className="text-sm text-slate-500 font-normal">Orders</span></div>
+           </div>
+           <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+              <div className="text-xs text-slate-500 font-bold uppercase">Active Disputes</div>
+              <div className="text-2xl font-bold text-red-400">{orders.filter((o:any) => o.status === 'DISPUTED').length}</div>
+           </div>
+        </div>
+      </div>
+
+      {/* FILTERS */}
+      <div className="max-w-7xl mx-auto mb-6 flex gap-2 border-b border-slate-800 pb-1">
+         {['ALL', 'ACTIVE', 'DISPUTED'].map((f) => (
+             <button key={f} onClick={() => setFilter(f as any)} className={`px-6 py-2 text-sm font-bold rounded-t-lg transition-all ${filter === f ? 'bg-slate-800 text-emerald-400 border-t border-x border-slate-700' : 'text-slate-500 hover:text-slate-300'}`}>
+                 {f} Orders
+             </button>
+         ))}
+      </div>
+
+      {/* TABLE */}
+      <div className="max-w-7xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+         <table className="w-full text-left">
+            <thead className="bg-slate-950 text-slate-400 text-xs uppercase font-bold">
+               <tr>
+                  <th className="p-4">ID</th>
+                  <th className="p-4">Value</th>
+                  <th className="p-4">Participants</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4 text-right">Admin Actions</th>
+               </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+               {filteredOrders.length === 0 ? (
+                  <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No orders found.</td></tr>
+               ) : (
+                  filteredOrders.map((order: any) => (
+                     <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className="p-4 font-mono text-slate-300">#{order.id}</td>
+                        <td className="p-4">
+                           <div className="font-bold">{order.amount} {order.symbol}</div>
+                        </td>
+                        <td className="p-4 text-sm">
+                           <div className="flex flex-col gap-1">
+                              <span className="text-emerald-400/80 text-xs">BUY: {order.buyer.slice(0,6)}...</span>
+                              <span className="text-blue-400/80 text-xs">SEL: {order.seller.slice(0,6)}...</span>
+                           </div>
+                        </td>
+                        <td className="p-4">
+                           <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              order.status === 'COMPLETED' ? 'bg-slate-800 text-slate-400' :
+                              order.status === 'DISPUTED' ? 'bg-red-500/20 text-red-400' :
+                              'bg-emerald-500/20 text-emerald-400'
+                           }`}>
+                              {order.status}
+                           </span>
+                        </td>
+                        <td className="p-4 text-right flex justify-end gap-2">
+                           {order.status === 'ACTIVE' && (
+                               <>
+                                 <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-red-900/30 text-red-400 text-xs font-bold rounded hover:bg-red-900/50">Refund</button>
+                                 <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-amber-900/30 text-amber-400 text-xs font-bold rounded hover:bg-amber-900/50">Dispute</button>
+                               </>
+                           )}
+                           {order.status === 'DISPUTED' && (
+                               <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE' })} className="px-3 py-1.5 bg-emerald-900/30 text-emerald-400 text-xs font-bold rounded hover:bg-emerald-900/50">Resolve (Release)</button>
+                           )}
+                           {order.status === 'COMPLETED' && <span className="text-slate-600 text-xs flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Finalized</span>}
+                        </td>
+                     </tr>
+                  ))
+               )}
+            </tbody>
+         </table>
+      </div>
+
+      {/* CONFIRMATION MODAL */}
+      {adminAction && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl max-w-sm w-full">
+               <h3 className="text-lg font-bold mb-2 text-white">Confirm Admin Action</h3>
+               <p className="text-slate-400 text-sm mb-6">
+                  Are you sure you want to 
+                  <span className="font-bold text-white mx-1">{adminAction.type}</span> 
+                  Order #{adminAction.id.toString()}? <br/>
+                  This action is irreversible on the blockchain.
+               </p>
+               <div className="flex gap-3">
+                  <button onClick={() => setAdminAction(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-lg font-bold text-sm">Cancel</button>
+                  <button onClick={executeAdminAction} disabled={isPending || isConfirming} className="flex-1 bg-red-600 hover:bg-red-500 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2">
+                     {isPending || isConfirming ? <Loader2 className="animate-spin w-4 h-4"/> : <ShieldAlert className="w-4 h-4"/>}
+                     Confirm
+                  </button>
+               </div>
+            </div>
+         </div>
       )}
 
-      {/* NAVBAR */}
-      <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold">TrustLink</span></div>
-        {authenticated ? (
-            <div className="flex items-center gap-4">
-                {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
-                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 hover:bg-white/5 px-3 py-1.5 rounded-lg border border-transparent hover:border-emerald-500/30">
-                    <span className="font-mono text-sm font-bold">{ethBalance?.formatted ? Number(ethBalance.formatted).toFixed(4) : "0.00"} ETH</span>
-                    <Wallet className="w-4 h-4 text-slate-400" />
-                </button>
-                <button onClick={logout} className="bg-white/5 p-2 rounded-full"><LogOut className="w-4 h-4" /></button>
-            </div>
-        ) : <button onClick={login} className="bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full text-sm font-bold">Log In</button>}
-      </nav>
-
-      {/* MAIN CONTENT */}
-      <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
-        <h1 className="text-5xl font-extrabold mb-8 text-center leading-tight">Trust is no longer <br /><span className="text-emerald-400">a leap of faith.</span></h1>
-        
-        {/* DEPOSIT BOX */}
-        <div className="w-full max-w-md bg-slate-800/50 border border-slate-700 p-8 rounded-2xl backdrop-blur-sm shadow-2xl relative z-10">
-            {!authenticated ? <button onClick={login} className="w-full bg-emerald-500 hover:bg-emerald-400 py-3 rounded-xl font-bold">Connect Wallet</button> : (
-            <div className="flex flex-col gap-4">
-                <div className="relative">
-                    <button onClick={() => setIsTokenListOpen(!isTokenListOpen)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 flex justify-between items-center">
-                        <div className="flex items-center gap-2"><div className={`w-5 h-5 rounded-full ${selectedAsset.icon} flex items-center justify-center text-[8px]`}>{selectedAsset.symbol[0]}</div><span>{selectedAsset.symbol}</span></div>
-                        <ChevronDown className="w-4 h-4 text-slate-500" />
-                    </button>
-                    {isTokenListOpen && <div className="absolute top-full w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl z-20 overflow-hidden">{ASSETS.map(a => <div key={a.symbol} onClick={() => { setSelectedAsset(a); setIsTokenListOpen(false); }} className="p-3 hover:bg-slate-700 cursor-pointer flex gap-3"><div className={`w-6 h-6 rounded-full ${a.icon} flex items-center justify-center text-[10px]`}>{a.symbol[0]}</div>{a.name}</div>)}</div>}
-                </div>
-                <div><label className="text-xs text-slate-400 ml-1">SELLER ADDRESS</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x..." className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500" /></div>
-                <div><label className="text-xs text-slate-400 ml-1">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500" /></div>
-                
-                <button onClick={handleCreateTransaction} disabled={isWriting || isConfirming || !sellerAddress || !amountInput} className="w-full bg-emerald-500 hover:bg-emerald-400 py-4 rounded-xl font-bold mt-2 disabled:opacity-50">
-                    {(isWriting || isConfirming) ? <Loader2 className="animate-spin mx-auto" /> : "Deposit & Lock Funds"}
-                </button>
-            </div>
-            )}
-        </div>
-
-        {/* ORDER LIST */}
-        <div className="w-full mt-20 border-t border-white/10 pt-10">
-            <div className="flex gap-6 mb-6 border-b border-white/10 pb-1">
-                <button onClick={() => setDashboardTab('buying')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying' ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
-                <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400' : 'border-transparent text-slate-500'}`}>I'm Selling</button>
-                <button onClick={handleRefresh} className="ml-auto text-slate-500 hover:text-white"><RefreshCcw className="w-5 h-5" /></button>
-            </div>
-
-            <div className="space-y-4">
-                {(dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders).map((order: any) => (
-                    <OrderCard 
-                        key={order.id} 
-                        order={order} 
-                        isSellerView={dashboardTab === 'selling'} 
-                        userAddress={userAddress || ''}
-                        onUpdate={handleRefresh}
-                    />
-                ))}
-                {(dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders).length === 0 && <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">No active orders found.</div>}
-            </div>
-        </div>
-      </main>
     </div>
   );
 }
