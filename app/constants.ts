@@ -36,4 +36,4 @@ export const CONTRACT_ABI = [
   { "inputs": [{ "internalType": "uint256", "name": "_orderId", "type": "uint256" }, { "internalType": "uint256", "name": "_amountToRelease", "type": "uint256" }], "name": "releaseMilestone", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_orderId", "type": "uint256" }, { "internalType": "address", "name": "_winner", "type": "address" }], "name": "resolveDispute", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_orderId", "type": "uint256" }], "name": "withdrawStuckFunds", "outputs": [], "stateMutability": "nonpayable", "type": "function" }
-];
+]as const;
