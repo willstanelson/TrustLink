@@ -29,12 +29,6 @@ const ASSETS = [
   { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
 ];
 
-const FIAT_CURRENCIES = [
-    { code: 'NGN', symbol: '₦', name: 'Nigerian Naira', icon: 'bg-green-600' },
-    { code: 'USD', symbol: '$', name: 'US Dollar', icon: 'bg-blue-600' },
-];
-
-// PAYSTACK COMPATIBLE BANK LIST (Top Tier)
 const BANKS = [
     { code: '058', name: 'Guaranty Trust Bank' },
     { code: '057', name: 'Zenith Bank' },
@@ -64,9 +58,9 @@ export default function Home() {
   const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
   const [isTokenListOpen, setIsTokenListOpen] = useState(false);
   
-  // Fiat Form State (PAYSTACK READY)
+  // Fiat Form State
   const [fiatAmount, setFiatAmount] = useState('');
-  const [buyerEmail, setBuyerEmail] = useState(''); // Required by Paystack
+  const [buyerEmail, setBuyerEmail] = useState(''); 
   const [fiatDescription, setFiatDescription] = useState('');
   
   const [bankCode, setBankCode] = useState('');
@@ -89,12 +83,11 @@ export default function Home() {
     setAccountName('');
 
     try {
-        // Call our new secure backend route
         const response = await fetch(`/api/paystack/resolve?account_number=${account}&bank_code=${bank}`);
         const data = await response.json();
 
         if (data.status && data.data) {
-             setAccountName(data.data.account_name); // Real Name from Bank
+             setAccountName(data.data.account_name);
         } else {
              throw new Error("Could not verify account.");
         }
@@ -103,6 +96,7 @@ export default function Home() {
     } finally {
         setIsResolving(false);
     }
+  };
 
   // Trigger Resolution when inputs are ready
   useEffect(() => {
@@ -114,21 +108,18 @@ export default function Home() {
     }
   }, [accountNumber, bankCode]);
 
-
+  // Data Fetching
   const [dbOrders, setDbOrders] = useState<Record<number, any>>({});
   const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying'); 
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
-  
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
 
   // Blockchain Transaction State
   const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Clear toast after 4s
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
-  
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
   // Handle Transaction Success
@@ -147,9 +138,7 @@ export default function Home() {
   const userAddress = user?.wallet?.address;
   const isWrongNetwork = authenticated && chain && chain.id !== sepolia.id;
 
-  // ==========================================
-  // 3. DATA FETCHING
-  // ==========================================
+  // Database Fetch
   const fetchDbOrders = async () => {
     const { data } = await supabase.from('escrow_orders').select('*');
     if (data) {
@@ -158,17 +147,15 @@ export default function Home() {
       setDbOrders(map);
     }
   };
-  
   useEffect(() => { fetchDbOrders(); }, []);
 
+  // Contract Reads
   const { data: ethBalance, refetch: refetchEth } = useBalance({ address: userAddress as `0x${string}` });
-  
   const { data: usdcAllowance, refetch: refetchAllowance } = useReadContract({
     address: ASSETS[1].address as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance',
     args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS] : undefined,
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
-
   const { data: totalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
@@ -245,9 +232,7 @@ export default function Home() {
     return { myBuyingOrders: buying, mySellingOrders: selling };
   }, [escrowsData, userAddress, indexesToFetch, dbOrders]);
 
-  // ==========================================
-  // 4. MAIN ACTIONS
-  // ==========================================
+  // Actions
   const handleCryptoTransaction = async () => {
     if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
     if (!sellerAddress || !amountInput) return;
@@ -258,7 +243,6 @@ export default function Home() {
       const isEth = selectedAsset.symbol === 'ETH';
       const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
 
-      // Approve USDC
       if (!isEth) {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
@@ -274,7 +258,6 @@ export default function Home() {
         }
       }
 
-      // Deposit
       setTxType('deposit'); 
       writeContract({ 
         address: CONTRACT_ADDRESS, 
@@ -295,15 +278,6 @@ export default function Home() {
     if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { showToast("Please fill all fields", 'error'); return; }
     if(!accountName) { showToast("Please wait for account verification", 'error'); return; }
 
-    // TODO: Paystack Transaction Initialization Logic
-    // const response = await axios.post('/api/initiate-escrow', {
-    //    amount: fiatAmount,
-    //    email: buyerEmail,
-    //    recipient_bank: bankCode,
-    //    recipient_account: accountNumber,
-    //    ...
-    // });
-    
     showToast("Redirecting to Paystack Secure Checkout...", 'info');
     setTimeout(() => {
         showToast("Payment System Pending Integration", 'success');
