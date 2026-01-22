@@ -1,20 +1,24 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  
-  // 1. Fix for Next.js 16 Turbopack conflict
-  turbopack: {},
-
-  // 2. Web3 Polyfills (Required for Wagmi/RainbowKit)
-  webpack: (config) => {
-    config.externals.push("pino-pretty", "lokijs", "encoding");
+  reactStrictMode: true,
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+        stream: false,
+        buffer: require.resolve("buffer/"),
+      };
+      
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        "@react-native-async-storage/async-storage": false,
+      };
+    }
     return config;
-  },
-  
-  // 3. Ignore Typescript errors during build to prevent Vercel from failing on small things
-  typescript: {
-    ignoreBuildErrors: true,
   },
 };
 
