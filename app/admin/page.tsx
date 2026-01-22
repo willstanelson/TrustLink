@@ -13,39 +13,29 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ADMIN_WALLET = "0xefd09435E4c6cB6E3d0B40EC501e4FADdCEA0698".toLowerCase();
 
 export default function AdminPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, isConnecting } = useAccount();
   const router = useRouter();
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Prevent Hydration Mismatch
+  useEffect(() => { setIsClient(true); }, []);
 
   // 🔒 AUTH CHECK
   useEffect(() => {
-    if (!isConnected) return;
-    if (address && address.toLowerCase() === ADMIN_WALLET) {
+    if (!address) return;
+    if (address.toLowerCase() === ADMIN_WALLET) {
         setIsAuthorized(true);
     } else {
         setIsAuthorized(false);
     }
-  }, [address, isConnected]);
+  }, [address]);
 
-  // If not authorized, show Access Denied
-  if (!isConnected || !isAuthorized) {
-      return (
-          <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center text-white">
-              <Lock className="w-16 h-16 text-red-500 mb-4" />
-              <h1 className="text-3xl font-bold">Access Denied</h1>
-              <p className="text-slate-400 mt-2">You do not have permission to view this command center.</p>
-              <button onClick={() => router.push('/')} className="mt-6 bg-slate-800 hover:bg-slate-700 px-6 py-2 rounded-lg font-bold">Go Home</button>
-          </div>
-      );
-  }
-
-  // ... (REST OF THE DASHBOARD CODE REMAINS THE SAME, PASTE IT BELOW)
-  
   // State
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'DISPUTED'>('ALL');
   const [adminAction, setAdminAction] = useState<{ id: bigint, type: 'RELEASE' | 'REFUND' | 'DISPUTE' } | null>(null);
 
-  // 1. Fetch Total Count
+  // 1. Fetch Total Count (ALWAYS CALL HOOKS AT TOP LEVEL)
   const { data: totalEscrows } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -139,6 +129,25 @@ export default function AdminPage() {
     return true;
   });
 
+  // 🔒 RENDER GUARD (Wait for client load)
+  if (!isClient) return <div className="min-h-screen bg-[#0f172a] text-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+
+  // 🔒 ACCESS DENIED SCREEN
+  if (!isConnected || !isAuthorized) {
+      return (
+          <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center text-white">
+              <Lock className="w-16 h-16 text-red-500 mb-4" />
+              <h1 className="text-3xl font-bold">Access Denied</h1>
+              <p className="text-slate-400 mt-2">
+                {isConnecting ? "Connecting wallet..." : "You do not have permission to view this command center."}
+              </p>
+              {!isConnected && <p className="text-xs text-slate-600 mt-4">Please connect wallet on home page first.</p>}
+              <button onClick={() => router.push('/')} className="mt-6 bg-slate-800 hover:bg-slate-700 px-6 py-2 rounded-lg font-bold">Go Home</button>
+          </div>
+      );
+  }
+
+  // 🔓 AUTHORIZED DASHBOARD
   return (
     <div className="min-h-screen bg-[#0f172a] text-white p-8 font-sans">
       
