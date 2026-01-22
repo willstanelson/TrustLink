@@ -1,10 +1,20 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
+import { createConfig, WagmiProvider } from 'wagmi';
+import { sepolia } from 'wagmi/chains';
+import { http } from 'viem';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { WagmiProvider } from '@privy-io/wagmi';
-import { config } from '@/lib/wagmi';
 
+// 1. Setup Wagmi Config
+const config = createConfig({
+  chains: [sepolia],
+  transports: {
+    [sepolia.id]: http(),
+  },
+});
+
+// 2. Setup Query Client
 const queryClient = new QueryClient();
 
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -12,14 +22,21 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ''}
       config={{
+        // ✅ FIX: Nest configuration under 'ethereum' to satisfy strict Types
         embeddedWallets: {
-          createOnLogin: 'users-without-wallets',
+          ethereum: {
+            createOnLogin: 'users-without-wallets',
+          },
+        },
+        appearance: {
+          theme: 'dark',
+          accentColor: '#10b981', // Matches your Emerald-500 theme
         },
       }}
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={config}>
-            {children}
+          {children}
         </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
