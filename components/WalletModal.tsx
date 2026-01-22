@@ -1,5 +1,5 @@
 import { usePrivy } from '@privy-io/react-auth';
-import { useBalance, useSendTransaction, useWriteContract, useWaitForTransactionReceipt, useChainId, useSwitchChain } from 'wagmi';
+import { useBalance, useSendTransaction, useWriteContract, useWaitForTransactionReceipt, useChainId, useSwitchChain, useAccount } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { X, Copy, LogOut, Key, AlertTriangle, Wallet, RefreshCw, Send, ChevronLeft, Loader2, ArrowDown, CheckCircle2 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
