@@ -102,7 +102,12 @@ export default function Home() {
   }, [count]);
 
   const { data: escrowsData, refetch: refetchOrders } = useReadContracts({
-    contracts: indexesToFetch.map((id) => ({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrows', args: [BigInt(id)] })),
+    contracts: indexesToFetch.map((id) => ({ 
+    abi: CONTRACT_ABI, 
+    address: CONTRACT_ADDRESS as `0x${string}`, 
+    functionName: 'escrows', 
+    args: [BigInt(id)] 
+})),
     query: { refetchInterval: 5000 }
   });
 
