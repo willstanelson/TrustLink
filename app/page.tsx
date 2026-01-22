@@ -8,10 +8,10 @@ import WalletModal from '@/components/WalletModal';
 import { usePrivy } from '@privy-io/react-auth';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
-import { parseUnits, formatEther, formatUnits } from 'viem';
+import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
 import React, { useEffect, useState, useMemo } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient'; 
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Network, Wallet, 
   ChevronDown, X, CheckCircle2 
@@ -45,22 +45,26 @@ export default function Home() {
   const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
   const [isTokenListOpen, setIsTokenListOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
+  
+  const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
 
-  // Blockchain Transaction State
   const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Clear toast after 4s
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
   
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // Handle Transaction Success
   useEffect(() => {
     if (isSuccess) {
-        showToast("Transaction Confirmed!", 'success');
-        setSellerAddress('');
-        setAmountInput('');
+        showToast(txType === 'approve' ? "Approved! Now click Deposit." : "Escrow Created Successfully!", 'success');
+        
+        if (txType === 'deposit') {
+            setSellerAddress('');
+            setAmountInput('');
+        }
+        
+        setTxType(null); 
         handleRefresh();
     }
   }, [isSuccess]);
@@ -82,19 +86,17 @@ export default function Home() {
   
   useEffect(() => { fetchDbOrders(); }, []);
 
-  // Balances
   const { data: ethBalance, refetch: refetchEth } = useBalance({ address: userAddress as `0x${string}` });
+  
   const { data: usdcAllowance, refetch: refetchAllowance } = useReadContract({
     address: ASSETS[1].address as `0x${string}`, abi: ERC20_ABI, functionName: 'allowance',
-    args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS as `0x${string}`] : undefined,
+    args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS] : undefined, // Removed inline cast!
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
 
-  // Fetch Orders from Contract
   const { data: totalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
-  // Get last 10 orders
   const indexesToFetch = useMemo(() => {
     const idxs = [];
     for (let i = count; i > 0 && i > count - 10; i--) idxs.push(i);
@@ -102,13 +104,22 @@ export default function Home() {
   }, [count]);
 
   const { data: escrowsData, refetch: refetchOrders } = useReadContracts({
-    contracts: indexesToFetch.map((id) => ({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrows', args: [BigInt(id)] })),
+    contracts: indexesToFetch.map((id) => ({ 
+        abi: CONTRACT_ABI, 
+        address: CONTRACT_ADDRESS, // Removed inline cast! CLEAN!
+        functionName: 'escrows', 
+        args: [BigInt(id)] 
+    })),
     query: { refetchInterval: 5000 }
   });
 
-  const handleRefresh = () => { refetchEth(); refetchOrders(); refetchAllowance(); fetchDbOrders(); };
+  const handleRefresh = () => { 
+      refetchEth(); 
+      refetchOrders(); 
+      if (selectedAsset.symbol === 'USDC') refetchAllowance?.(); 
+      fetchDbOrders(); 
+  };
 
-  // Parse Orders
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
     const selling: any[] = [];
@@ -164,24 +175,40 @@ export default function Home() {
   // ==========================================
   const handleCreateTransaction = async () => {
     if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
+    
     if (!sellerAddress || !amountInput) return;
+    if (!isAddress(sellerAddress)) { showToast("Invalid Ethereum Address", 'error'); return; }
+    if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
+
     try {
       const isEth = selectedAsset.symbol === 'ETH';
       const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
 
-      // Approve USDC if needed
       if (!isEth) {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
-          writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS as `0x${string}`, amountWei] });
+          setTxType('approve'); 
+          writeContract({ 
+            address: selectedAsset.address as `0x${string}`, 
+            abi: ERC20_ABI, 
+            functionName: 'approve', 
+            args: [CONTRACT_ADDRESS, amountWei] // Removed inline cast!
+          });
           showToast("Approval Request Sent...", 'info');
           return;
         }
       }
-      // Create Escrow
+
+      setTxType('deposit'); 
       writeContract({ 
-        address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', 
-        args: [sellerAddress, selectedAsset.address, amountWei], 
+        address: CONTRACT_ADDRESS, // Removed inline cast!
+        abi: CONTRACT_ABI, 
+        functionName: 'createEscrow', 
+        args: [
+            sellerAddress as `0x${string}`, // Input still needs cast, this is fine
+            selectedAsset.address as `0x${string}`,
+            amountWei
+        ], 
         value: isEth ? amountWei : BigInt(0) 
       });
       showToast("Deposit Request Sent...", 'info');
@@ -195,7 +222,6 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
 
-      {/* TOAST */}
       {notification && (
         <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
@@ -203,7 +229,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* NAVBAR */}
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold">TrustLink</span></div>
         {authenticated ? (
@@ -218,11 +243,9 @@ export default function Home() {
         ) : <button onClick={login} className="bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full text-sm font-bold">Log In</button>}
       </nav>
 
-      {/* MAIN CONTENT */}
       <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
         <h1 className="text-5xl font-extrabold mb-8 text-center leading-tight">Trust is no longer <br /><span className="text-emerald-400">a leap of faith.</span></h1>
         
-        {/* DEPOSIT BOX */}
         <div className="w-full max-w-md bg-slate-800/50 border border-slate-700 p-8 rounded-2xl backdrop-blur-sm shadow-2xl relative z-10">
             {!authenticated ? <button onClick={login} className="w-full bg-emerald-500 hover:bg-emerald-400 py-3 rounded-xl font-bold">Connect Wallet</button> : (
             <div className="flex flex-col gap-4">
@@ -243,7 +266,6 @@ export default function Home() {
             )}
         </div>
 
-        {/* ORDER LIST */}
         <div className="w-full mt-20 border-t border-white/10 pt-10">
             <div className="flex gap-6 mb-6 border-b border-white/10 pb-1">
                 <button onClick={() => setDashboardTab('buying')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying' ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
