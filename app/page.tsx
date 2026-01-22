@@ -76,7 +76,7 @@ export default function Home() {
     }
   }, [user]);
 
-  // --- REAL PAYSTACK LOGIC ---
+  // --- REAL PAYSTACK LOGIC (DEBUG MODE) ---
   const resolveBankAccount = async (account: string, bank: string) => {
     setIsResolving(true);
     setResolveError('');
@@ -86,13 +86,21 @@ export default function Home() {
         const response = await fetch(`/api/paystack/resolve?account_number=${account}&bank_code=${bank}`);
         const data = await response.json();
 
-        if (data.status && data.data) {
+        // ✅ If the API returns status: false, throw the ACTUAL message from Paystack
+        if (!data.status) {
+            throw new Error(data.message || "Unknown bank error");
+        }
+
+        if (data.data && data.data.account_name) {
              setAccountName(data.data.account_name);
         } else {
-             throw new Error("Could not verify account.");
+             throw new Error("Account name not found");
         }
     } catch (err: any) {
-        setResolveError("Verification failed. Check details.");
+        // ✅ Show the specific error in the toast
+        console.error("Verification Error:", err);
+        setResolveError(err.message || "Verification failed"); 
+        showToast(`Error: ${err.message}`, 'error');
     } finally {
         setIsResolving(false);
     }
