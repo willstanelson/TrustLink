@@ -164,7 +164,7 @@ export default function Home() {
     return { myBuyingOrders: buying, mySellingOrders: selling };
   }, [escrowsData, userAddress, indexesToFetch, dbOrders]);
 
-  // ==========================================
+// ==========================================
   // 4. MAIN ACTIONS (DEPOSIT)
   // ==========================================
   const handleCreateTransaction = async () => {
@@ -174,19 +174,31 @@ export default function Home() {
       const isEth = selectedAsset.symbol === 'ETH';
       const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
 
-      // Approve USDC if needed
+      // 1. Approve USDC if needed
       if (!isEth) {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
-          writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS as `0x${string}`, amountWei] });
+          writeContract({ 
+            address: selectedAsset.address as `0x${string}`, 
+            abi: ERC20_ABI, 
+            functionName: 'approve', // <--- Fixed: Now actually calls Approve
+            args: [CONTRACT_ADDRESS as `0x${string}`, amountWei] 
+          });
           showToast("Approval Request Sent...", 'info');
           return;
         }
       }
-      // Create Escrow
+
+      // 2. Create Escrow (With Strict Types for Vercel)
       writeContract({ 
-        address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', 
-        args: [sellerAddress, selectedAsset.address, amountWei], 
+        address: CONTRACT_ADDRESS, 
+        abi: CONTRACT_ABI, 
+        functionName: 'createEscrow', 
+        args: [
+            sellerAddress as `0x${string}`,       // <--- Fixed: Strict Type
+            selectedAsset.address as `0x${string}`, // <--- Fixed: Strict Type
+            amountWei
+        ], 
         value: isEth ? amountWei : BigInt(0) 
       });
       showToast("Deposit Request Sent...", 'info');
