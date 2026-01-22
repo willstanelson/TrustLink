@@ -82,29 +82,27 @@ export default function Home() {
     }
   }, [user]);
 
-  // --- PAYSTACK LOGIC: ACCOUNT RESOLUTION ---
-  // This mimics the exact behavior of calling Paystack's /bank/resolve endpoint
+  // --- REAL PAYSTACK LOGIC ---
   const resolveBankAccount = async (account: string, bank: string) => {
     setIsResolving(true);
     setResolveError('');
     setAccountName('');
 
     try {
-        // TODO: Replace this timeout with: await axios.get(`/api/resolve-bank?account=${account}&bank=${bank}`)
-        await new Promise(resolve => setTimeout(resolve, 1500)); 
+        // Call our new secure backend route
+        const response = await fetch(`/api/paystack/resolve?account_number=${account}&bank_code=${bank}`);
+        const data = await response.json();
 
-        // Mock Response Logic
-        if (account === '1234567890') {
-             throw new Error("Could not resolve account name. Check details.");
+        if (data.status && data.data) {
+             setAccountName(data.data.account_name); // Real Name from Bank
+        } else {
+             throw new Error("Could not verify account.");
         }
-        
-        setAccountName("MUSA ABUBAKAR CHINEDU"); // Success Mock
     } catch (err: any) {
-        setResolveError(err.message || "Failed to verify account");
+        setResolveError("Verification failed. Check details.");
     } finally {
         setIsResolving(false);
     }
-  };
 
   // Trigger Resolution when inputs are ready
   useEffect(() => {
