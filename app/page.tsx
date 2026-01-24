@@ -281,6 +281,7 @@ export default function Home() {
     const buying: any[] = [];
     const selling: any[] = [];
     
+    // 1. PROCESS CRYPTO ORDERS (FROM BLOCKCHAIN)
     if (escrowsData && userAddress) {
       escrowsData.forEach((result, index) => {
         if (result.status === 'success' && result.result) {
@@ -316,7 +317,8 @@ export default function Home() {
             token_symbol: isEth ? 'ETH' : 'USDC',
             formattedTotal: isEth ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
-            percentPaid
+            percentPaid,
+            type: 'CRYPTO'
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -324,8 +326,36 @@ export default function Home() {
         }
       });
     }
+
+    // 2. PROCESS FIAT ORDERS (FROM DATABASE)
+    // We look for orders where 'paystack_ref' exists
+    Object.values(dbOrders).forEach((dbOrder: any) => {
+        if (!dbOrder.paystack_ref) return; // Skip crypto entries in DB
+
+        // Check if I am the buyer (Match Email)
+        const myEmail = user?.email?.address;
+        const isMyOrder = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail.toLowerCase();
+
+        if (isMyOrder) {
+            buying.push({
+                id: `NGN-${dbOrder.id}`, // Unique ID for UI
+                buyer: dbOrder.buyer_email, // Email instead of Wallet
+                seller: dbOrder.seller_name, // Name instead of Wallet
+                token: '0x00', 
+                amount: BigInt(0), // Placeholder
+                formattedTotal: Number(dbOrder.amount).toLocaleString(), // "5,000"
+                formattedLocked: "0",
+                token_symbol: 'NGN',
+                status: dbOrder.status === 'success' ? 'PAID' : 'PENDING',
+                statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
+                percentPaid: dbOrder.status === 'success' ? 100 : 0,
+                type: 'FIAT'
+            });
+        }
+    });
+
     return { myBuyingOrders: buying, mySellingOrders: selling };
-  }, [escrowsData, userAddress, indexesToFetch, dbOrders]);
+  }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
 
   // Actions
   const handleCryptoTransaction = async () => {
