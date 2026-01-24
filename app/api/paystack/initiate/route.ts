@@ -34,7 +34,8 @@ export async function POST(request: Request) {
             custom_fields: [
                 { display_name: "Seller Bank", variable_name: "seller_bank", value: seller_bank },
                 { display_name: "Seller Account", variable_name: "seller_account", value: seller_number },
-                { display_name: "Seller Name", variable_name: "seller_name", value: seller_name }
+                { display_name: "Seller Name", variable_name: "seller_name", value: seller_name },
+                { display_name: "Description", variable_name: "description", value: description }
             ]
         },
         callback_url: "https://trust-link-sooty.vercel.app/"
@@ -48,11 +49,14 @@ export async function POST(request: Request) {
     }
 
     // 2. SAVE TO SUPABASE (The Memory)
-    // We save it as 'PENDING' until they actually pay
+    // FIX: We generate a unique 'id' using Date.now() so the DB is happy.
+    // FIX: We provide a placeholder 'seller_address' because that column is required.
     const { error: dbError } = await supabase
         .from('escrow_orders')
         .insert([
             {
+                id: Date.now(), // <--- GENIUS FIX: Unique ID based on timestamp
+                seller_address: "0xFIAT0000000000000000000000000000000000", // <--- Placeholder to satisfy DB
                 buyer_email: email,
                 seller_name: seller_name,
                 seller_bank_details: `${seller_bank} - ${seller_number}`,
@@ -60,13 +64,13 @@ export async function POST(request: Request) {
                 currency: 'NGN',
                 status: 'PENDING',
                 description: description,
-                paystack_ref: data.data.reference // Crucial for tracking!
+                paystack_ref: data.data.reference
             }
         ]);
 
     if (dbError) {
-        console.error("Database Save Failed:", dbError);
-        // We don't stop the payment, but we log the error
+        // Log the full error to Vercel so we can see it if it fails again
+        console.error("Database Save Failed Details:", JSON.stringify(dbError, null, 2));
     }
 
     return NextResponse.json(data);
