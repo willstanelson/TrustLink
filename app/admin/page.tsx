@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import { Loader2, CheckCircle, ShieldAlert, Lock, LogOut } from 'lucide-react';
+import { Loader2, CheckCircle, ShieldAlert, Skull, OctagonX } from 'lucide-react'; // Added Skull icon
 import { useRouter } from 'next/navigation';
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -17,15 +17,12 @@ export default function AdminPage() {
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
 
-  // Prevent Hydration Mismatch
   useEffect(() => { setIsClient(true); }, []);
 
   // 🔒 STRICT SECURITY CHECK
-  // We calculate this immediately. No effects.
   const userAddress = address ? address.toLowerCase() : "";
   const isAuthorized = isConnected && userAddress === ADMIN_WALLET;
 
-  // Blockchain Hooks (Only fetch if authorized to save resources)
   const { data: totalEscrows } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -62,42 +59,36 @@ export default function AdminPage() {
     }
   }, [isSuccess]);
 
-  // Loading State
   if (!isClient || isConnecting) return <div className="min-h-screen bg-[#0f172a] text-white flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
-  // ⛔️ ACCESS DENIED SCREEN (With Debug Info)
+  // ⛔️ SAVAGE ACCESS DENIED SCREEN
   if (!isAuthorized) {
       return (
-          <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center text-white p-4 font-sans">
-              <div className="bg-red-500/10 p-6 rounded-full mb-6 border border-red-500/50">
-                  <Lock className="w-12 h-12 text-red-500" />
-              </div>
-              <h1 className="text-3xl font-extrabold text-white mb-2">ACCESS DENIED</h1>
-              <p className="text-slate-400 mb-8">You do not have permission to view the Command Center.</p>
+          <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white p-4 font-sans relative overflow-hidden">
+              {/* Background Effect */}
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-red-900/20 via-black to-black"></div>
               
-              {/* DEBUG BOX: PROVES WHY YOU ARE BLOCKED */}
-              <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl text-left text-sm font-mono max-w-lg w-full">
-                  <div className="mb-4 pb-4 border-b border-slate-700">
-                      <div className="text-slate-500 text-xs uppercase font-bold mb-1">Your Connected Wallet</div>
-                      <div className={`${isConnected ? 'text-red-400' : 'text-slate-500 italic'}`}>
-                        {isConnected ? address : "Not Connected"}
-                      </div>
-                  </div>
-                  <div>
-                      <div className="text-slate-500 text-xs uppercase font-bold mb-1">Required Admin Wallet</div>
-                      <div className="text-emerald-500">
-                        {ADMIN_WALLET}
-                      </div>
-                  </div>
-              </div>
+              <div className="relative z-10 flex flex-col items-center text-center">
+                <div className="bg-red-600/20 p-6 rounded-full mb-8 border-2 border-red-600 shadow-[0_0_50px_rgba(220,38,38,0.5)] animate-pulse">
+                    <Skull className="w-20 h-20 text-red-600" />
+                </div>
+                
+                <h1 className="text-6xl font-black text-white mb-4 tracking-tighter uppercase">Wrong Turn.</h1>
+                <p className="text-red-500 font-mono text-lg mb-8 max-w-lg font-bold">
+                    This area is restricted. If you're looking for trouble, you found it. 
+                    <br/><br/>
+                    <span className="text-slate-400 font-normal">Now get the f*** outta here.</span>
+                </p>
 
-              <button onClick={() => router.push('/')} className="mt-8 bg-slate-800 hover:bg-slate-700 px-8 py-3 rounded-lg font-bold">Go Home</button>
+                <button onClick={() => router.push('/')} className="group relative px-8 py-4 bg-white text-black font-black text-lg uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all duration-300 skew-x-[-10deg]">
+                    <span className="block skew-x-[10deg]">Exit Immediately</span>
+                </button>
+              </div>
           </div>
       );
   }
 
   // ✅ AUTHORIZED DASHBOARD
-  // ... (Parsing Logic)
   const orders = escrowsData ? escrowsData.map((result, index) => {
       if (result.status !== 'success') return null;
       const e = result.result as any;
