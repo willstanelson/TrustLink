@@ -360,14 +360,53 @@ export default function Home() {
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
 
+  // --- HANDLE FIAT PAYMENT ---
   const handleFiatTransaction = async () => {
-    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { showToast("Please fill all fields", 'error'); return; }
-    if(!accountName) { showToast("Please wait for account verification", 'error'); return; }
+    // 1. Basic Validation
+    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { 
+        showToast("Please fill all fields", 'error'); 
+        return; 
+    }
+    if(!accountName) { 
+        showToast("Please wait for verification", 'error'); 
+        return; 
+    }
 
-    showToast("Redirecting to Paystack Secure Checkout...", 'info');
-    setTimeout(() => {
-        showToast("Payment System Pending Integration", 'success');
-    }, 2000);
+    try {
+        showToast("Initializing Secure Checkout...", 'info');
+
+        // 2. Call our Backend API
+        const response = await fetch('/api/paystack/initiate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount: fiatAmount,
+                email: buyerEmail,
+                seller_bank: BANKS.find(b => b.code === bankCode)?.name || bankCode,
+                seller_number: accountNumber,
+                seller_name: accountName,
+                description: fiatDescription || "Escrow Payment"
+            })
+        });
+
+        const data = await response.json();
+
+        if (!data.status) {
+            throw new Error(data.message || "Payment initialization failed");
+        }
+
+        // 3. Redirect to Paystack
+        showToast("Redirecting to Paystack...", 'success');
+        
+        // Slight delay so user sees the toast
+        setTimeout(() => {
+            window.location.href = data.data.authorization_url;
+        }, 1000);
+
+    } catch (err: any) {
+        console.error(err);
+        showToast(err.message || "Payment Error", 'error');
+    }
   };
 
   // ==========================================
