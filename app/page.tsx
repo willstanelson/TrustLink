@@ -154,17 +154,27 @@ export default function Home() {
     }
   }, [user]);
 
-  // --- REAL PAYSTACK LOGIC (DEBUG MODE) ---
+  // --- REAL PAYSTACK LOGIC (WITH DEV BYPASS) ---
   const resolveBankAccount = async (account: string, bank: string) => {
     setIsResolving(true);
     setResolveError('');
     setAccountName('');
 
+    // ⚡️ EMERGENCY BYPASS ⚡️
+    // Since Paystack rate-limited your key for the day, we skip the server call
+    // ONLY if you type the magic test number.
+    if (account === '9999999999') {
+        setTimeout(() => {
+            setAccountName("Test Mode User (Bypassed)"); // ✅ Auto-verify!
+            setIsResolving(false);
+        }, 800);
+        return; // <--- STOP HERE. Do not call the blocked API.
+    }
+
     try {
         const response = await fetch(`/api/paystack/resolve?account_number=${account}&bank_code=${bank}`);
         const data = await response.json();
 
-        // ✅ If the API returns status: false, throw the ACTUAL message from Paystack
         if (!data.status) {
             throw new Error(data.message || "Unknown bank error");
         }
@@ -175,12 +185,11 @@ export default function Home() {
              throw new Error("Account name not found");
         }
     } catch (err: any) {
-        // ✅ Show the specific error in the toast
         console.error("Verification Error:", err);
         setResolveError(err.message || "Verification failed"); 
         showToast(`Error: ${err.message}`, 'error');
     } finally {
-        setIsResolving(false);
+        if (account !== '9999999999') setIsResolving(false);
     }
   };
 
