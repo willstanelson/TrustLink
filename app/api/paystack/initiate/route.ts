@@ -10,7 +10,8 @@ const supabase = createClient(
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { amount, email, seller_bank, seller_number, seller_name, description } = body;
+    // 1. Receive buyer_wallet from frontend
+    const { amount, email, seller_bank, seller_number, seller_name, description, buyer_wallet } = body;
 
     if (!amount || !email) {
       return NextResponse.json({ status: false, message: 'Missing amount or email' }, { status: 400 });
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
 
     const amountInKobo = parseFloat(amount) * 100;
 
-    // 1. Initialize Paystack Transaction
+    // 2. Initialize Paystack Transaction
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
@@ -48,16 +49,15 @@ export async function POST(request: Request) {
         throw new Error(data.message || "Paystack initialization failed");
     }
 
-    // 2. SAVE TO SUPABASE (The Memory)
-    // FIX: We generate a unique 'id' using Date.now() so the DB is happy.
-    // FIX: We provide a placeholder 'seller_address' because that column is required.
+    // 3. SAVE TO SUPABASE (With Wallet Address!)
     const { error: dbError } = await supabase
         .from('escrow_orders')
         .insert([
             {
-                id: Date.now(), // <--- GENIUS FIX: Unique ID based on timestamp
-                seller_address: "0xFIAT0000000000000000000000000000000000", // <--- Placeholder to satisfy DB
+                id: Date.now(),
+                seller_address: "0xFIAT0000000000000000000000000000000000",
                 buyer_email: email,
+                buyer_wallet_address: buyer_wallet, // <--- THE MISSING LINK
                 seller_name: seller_name,
                 seller_bank_details: `${seller_bank} - ${seller_number}`,
                 amount: parseFloat(amount),
@@ -69,7 +69,6 @@ export async function POST(request: Request) {
         ]);
 
     if (dbError) {
-        // Log the full error to Vercel so we can see it if it fails again
         console.error("Database Save Failed Details:", JSON.stringify(dbError, null, 2));
     }
 
