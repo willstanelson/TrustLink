@@ -238,7 +238,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
          isOpen={showChat} 
          onClose={() => setShowChat(false)} 
          peerAddress={peerAddress} 
-         orderId={rawOrderId} // ✅ Passes clean numeric ID to chat
+         orderId={Number(rawOrderId)}// ✅ Passes clean numeric ID to chat
       />
     </div>
   );
