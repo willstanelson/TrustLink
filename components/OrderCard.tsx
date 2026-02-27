@@ -88,7 +88,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     setShowChat(true);
   };
 
-  // ✅ DATABASE ACTIONS (Fixed with strictly Number format)
   const handleAccept = async () => {
     setIsDbLoading(true);
     const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', Number(rawOrderId));
@@ -206,12 +205,22 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                 {!isSellerView && (
                     <>
                         {!order.isAccepted && <button onClick={handleCancel} disabled={isBusy} className="bg-red-500 hover:bg-red-400 text-white px-4 rounded-lg text-xs font-bold">{isBusy ? <Loader2 className="animate-spin w-4 h-4"/> : "Cancel"}</button>}
-                        {order.isAccepted && (
+                        
+                        {/* ✅ THE FIX: Display Waiting Status until Shipped */}
+                        {order.isAccepted && !order.isShipped && (
+                            <div className="flex-[2] bg-slate-700/50 text-slate-400 py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-slate-600/50">
+                                <Package className="w-3.5 h-3.5" /> Waiting for Shipment...
+                            </div>
+                        )}
+
+                        {/* ✅ THE FIX: Only show Release AFTER Shipped */}
+                        {order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 <input type="number" placeholder="0.00" value={releaseAmount} onChange={(e) => setReleaseAmount(e.target.value)} className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none" />
                                 <button onClick={() => handleRelease(releaseAmount || order.formattedLocked)} disabled={isBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold">{isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release"}</button>
                             </div>
                         )}
+
                         {order.isAccepted && <button onClick={handleDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg"><AlertTriangle className="w-4 h-4" /></button>}
                     </>
                 )}
