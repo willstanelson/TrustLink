@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase (Admin Context)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -10,16 +9,16 @@ const supabase = createClient(
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    // 1. Receive buyer_wallet from frontend
-    const { amount, email, seller_bank, seller_number, seller_name, description, buyer_wallet } = body;
+    // ✅ 1. ADDED seller_email HERE
+    const { amount, email, seller_email, seller_bank, seller_number, seller_name, description, buyer_wallet } = body;
 
-    if (!amount || !email) {
-      return NextResponse.json({ status: false, message: 'Missing amount or email' }, { status: 400 });
+    if (!amount || !email || !seller_email) {
+      return NextResponse.json({ status: false, message: 'Missing amount, buyer email, or seller email' }, { status: 400 });
     }
 
     const amountInKobo = parseFloat(amount) * 100;
 
-    // 2. Initialize Paystack Transaction
+    // 2. Initialize Paystack
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
@@ -33,6 +32,7 @@ export async function POST(request: Request) {
         channels: ['card', 'bank', 'ussd', 'bank_transfer'],
         metadata: {
             custom_fields: [
+                { display_name: "Seller Email", variable_name: "seller_email", value: seller_email },
                 { display_name: "Seller Bank", variable_name: "seller_bank", value: seller_bank },
                 { display_name: "Seller Account", variable_name: "seller_account", value: seller_number },
                 { display_name: "Seller Name", variable_name: "seller_name", value: seller_name },
@@ -45,11 +45,9 @@ export async function POST(request: Request) {
 
     const data = await res.json();
 
-    if (!res.ok) {
-        throw new Error(data.message || "Paystack initialization failed");
-    }
+    if (!res.ok) throw new Error(data.message || "Paystack initialization failed");
 
-    // 3. SAVE TO SUPABASE (With Wallet Address!)
+    // 3. Save to Supabase
     const { error: dbError } = await supabase
         .from('escrow_orders')
         .insert([
@@ -57,7 +55,8 @@ export async function POST(request: Request) {
                 id: Date.now(),
                 seller_address: "0xFIAT0000000000000000000000000000000000",
                 buyer_email: email,
-                buyer_wallet_address: buyer_wallet, // <--- THE MISSING LINK
+                buyer_wallet_address: buyer_wallet,
+                seller_email: seller_email, // ✅ 2. SAVING SELLER EMAIL
                 seller_name: seller_name,
                 seller_bank_details: `${seller_bank} - ${seller_number}`,
                 amount: parseFloat(amount),
@@ -68,9 +67,7 @@ export async function POST(request: Request) {
             }
         ]);
 
-    if (dbError) {
-        console.error("Database Save Failed Details:", JSON.stringify(dbError, null, 2));
-    }
+    if (dbError) console.error("Database Save Failed Details:", JSON.stringify(dbError, null, 2));
 
     return NextResponse.json(data);
 

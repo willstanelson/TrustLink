@@ -30,6 +30,7 @@ const ASSETS = [
   { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
 ];
 
+// YOUR FULL BANK LIST RESTORED!
 const BANKS = [
     { code: '120001', name: '9mobile 9Payment Service Bank' },
     { code: '801', name: 'Abbey Mortgage Bank' },
@@ -142,6 +143,7 @@ function MainDashboard() {
   // Fiat Form State
   const [fiatAmount, setFiatAmount] = useState('');
   const [buyerEmail, setBuyerEmail] = useState(''); 
+  const [sellerEmail, setSellerEmail] = useState(''); // ✅ Seller's Email State
   const [fiatDescription, setFiatDescription] = useState('');
   
   const [bankCode, setBankCode] = useState('');
@@ -172,7 +174,7 @@ function MainDashboard() {
     if (trxref) {
         setShowSuccessModal(true); 
         fetchDbOrders(); 
-        setMode('fiat'); // ✅ Force tab to Fiat when returning from a Fiat payment
+        setMode('fiat'); // Force tab to Fiat when returning
         router.replace('/'); 
     }
   }, [searchParams]);
@@ -317,28 +319,32 @@ function MainDashboard() {
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
-        const myEmail = user?.email?.address;
+        const myEmail = user?.email?.address?.toLowerCase();
         const myWallet = userAddress?.toLowerCase();
         
-        const isMyEmail = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail.toLowerCase();
-        const isMyWallet = myWallet && dbOrder.buyer_wallet_address?.toLowerCase() === myWallet;
+        const isMyEmailAsBuyer = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail;
+        const isMyWalletAsBuyer = myWallet && dbOrder.buyer_wallet_address?.toLowerCase() === myWallet;
+        
+        // ✅ MATCH SELLER BY EMAIL OR WALLET
+        const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
 
-        if (isMyEmail || isMyWallet) {
-            buying.push({
-                id: `NGN-${dbOrder.id}`,
-                buyer: dbOrder.buyer_email,
-                seller: dbOrder.seller_name,
-                amount: BigInt(0),
-                formattedTotal: Number(dbOrder.amount).toLocaleString(),
-                formattedLocked: "0",
-                token_symbol: 'NGN',
-                status: dbOrder.status === 'success' ? 'PAID' : 'PENDING',
-                statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
-                percentPaid: dbOrder.status === 'success' ? 100 : 0,
-                type: 'FIAT',
-                timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id
-            });
-        }
+        const fiatOrderObj = {
+            id: `NGN-${dbOrder.id}`,
+            buyer: dbOrder.buyer_email,
+            seller: dbOrder.seller_name,
+            amount: BigInt(0),
+            formattedTotal: Number(dbOrder.amount).toLocaleString(),
+            formattedLocked: "0",
+            token_symbol: 'NGN',
+            status: dbOrder.status === 'success' ? 'PAID' : 'PENDING',
+            statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
+            percentPaid: dbOrder.status === 'success' ? 100 : 0,
+            type: 'FIAT',
+            timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id
+        };
+
+        if (isMyEmailAsBuyer || isMyWalletAsBuyer) buying.push(fiatOrderObj);
+        if (isMyEmailAsSeller) selling.push(fiatOrderObj); // ✅ PUSH TO SELLING TAB
     });
 
     buying.sort((a, b) => b.timestamp - a.timestamp);
@@ -373,7 +379,7 @@ function MainDashboard() {
   };
 
   const handleFiatTransaction = async () => {
-    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { showToast("Please fill all fields", 'error'); return; }
+    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail || !sellerEmail) { showToast("Please fill all fields", 'error'); return; }
     if(!accountName) { showToast("Please wait for verification", 'error'); return; }
 
     try {
@@ -384,6 +390,7 @@ function MainDashboard() {
             body: JSON.stringify({
                 amount: fiatAmount,
                 email: buyerEmail,
+                seller_email: sellerEmail, // ✅ Sending seller email
                 seller_bank: BANKS.find(b => b.code === bankCode)?.name || bankCode,
                 seller_number: accountNumber,
                 seller_name: accountName,
@@ -403,7 +410,7 @@ function MainDashboard() {
     }
   };
 
-  // ✅ 3. DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
+  // ✅ DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
 
@@ -489,7 +496,12 @@ function MainDashboard() {
                         <div className="col-span-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-3 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"><span className="text-sm font-bold">NGN</span><div className={`w-4 h-4 rounded-full bg-green-600 flex items-center justify-center text-[8px] text-white`}>₦</div></div>
                         <div className="col-span-2"><input type="number" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Amount (e.g. 5000)" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" /></div>
                     </div>
+                    
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">YOUR EMAIL</label><input value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder="receipt@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all" /></div>
+                    
+                    {/* ✅ SELLER'S EMAIL INPUT */}
+                    <div><label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label><input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
+
                     <div>
                         <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
                         <div className="flex flex-col gap-2 mt-1">
@@ -501,7 +513,7 @@ function MainDashboard() {
                         </div>
                     </div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">DESCRIPTION</label><textarea value={fiatDescription} onChange={(e) => setFiatDescription(e.target.value)} placeholder="What are you paying for?" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all h-24 resize-none" /></div>
-                    <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Create Fiat Escrow <ArrowRight className="w-4 h-4" /></button>
+                    <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Create Fiat Escrow <ArrowRight className="w-4 h-4" /></button>
                     </>
                 )}
             </div>
