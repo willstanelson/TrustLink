@@ -30,7 +30,6 @@ const ASSETS = [
   { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
 ];
 
-// YOUR FULL BANK LIST RESTORED!
 const BANKS = [
     { code: '120001', name: '9mobile 9Payment Service Bank' },
     { code: '801', name: 'Abbey Mortgage Bank' },
@@ -143,7 +142,7 @@ function MainDashboard() {
   // Fiat Form State
   const [fiatAmount, setFiatAmount] = useState('');
   const [buyerEmail, setBuyerEmail] = useState(''); 
-  const [sellerEmail, setSellerEmail] = useState(''); // ✅ Seller's Email State
+  const [sellerEmail, setSellerEmail] = useState(''); 
   const [fiatDescription, setFiatDescription] = useState('');
   
   const [bankCode, setBankCode] = useState('');
@@ -314,7 +313,8 @@ function MainDashboard() {
         }
       });
     }
-// FIAT ORDERS
+
+    // FIAT ORDERS (UPDATED LOGIC HERE)
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
@@ -325,7 +325,7 @@ function MainDashboard() {
         const isMyWalletAsBuyer = myWallet && dbOrder.buyer_wallet_address?.toLowerCase() === myWallet;
         const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
 
-        // ✅ 1. DYNAMIC STATUS COLORS FOR FIAT
+        // Dynamic Status & Colors for Fiat
         let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; // Default Pending
         const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
         
@@ -348,7 +348,7 @@ function MainDashboard() {
             type: 'FIAT',
             timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
             
-            // ✅ 2. THE FIX: Teach the UI to hide the Accept button!
+            // ✅ Teaches the UI what these statuses mean so buttons update correctly
             isAccepted: ['accepted', 'shipped', 'success', 'completed'].includes(currentStatus),
             isShipped: ['shipped', 'success', 'completed'].includes(currentStatus),
             isCompleted: ['success', 'completed'].includes(currentStatus),
@@ -358,7 +358,71 @@ function MainDashboard() {
         if (isMyEmailAsBuyer || isMyWalletAsBuyer) buying.push(fiatOrderObj);
         if (isMyEmailAsSeller) selling.push(fiatOrderObj); 
     });
-  // ✅ DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
+
+    buying.sort((a, b) => b.timestamp - a.timestamp);
+    selling.sort((a, b) => b.timestamp - a.timestamp);
+
+    return { myBuyingOrders: buying, mySellingOrders: selling };
+  }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
+
+  const handleCryptoTransaction = async () => {
+    if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
+    if (!sellerAddress || !amountInput) return;
+    if (!isAddress(sellerAddress)) { showToast("Invalid Ethereum Address", 'error'); return; }
+    if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
+
+    try {
+      const isEth = selectedAsset.symbol === 'ETH';
+      const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
+
+      if (!isEth) {
+        const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
+        if (currentAllowance < amountWei) {
+          setTxType('approve'); 
+          writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
+          showToast("Approval Request Sent...", 'info');
+          return;
+        }
+      }
+      setTxType('deposit'); 
+      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isEth ? amountWei : BigInt(0) });
+      showToast("Deposit Request Sent...", 'info');
+    } catch (err: any) { showToast("Error: " + err.message, 'error'); }
+  };
+
+  const handleFiatTransaction = async () => {
+    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail || !sellerEmail) { showToast("Please fill all fields", 'error'); return; }
+    if(!accountName) { showToast("Please wait for verification", 'error'); return; }
+
+    try {
+        showToast("Initializing Secure Checkout...", 'info');
+        const response = await fetch('/api/paystack/initiate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount: fiatAmount,
+                email: buyerEmail,
+                seller_email: sellerEmail, 
+                seller_bank: BANKS.find(b => b.code === bankCode)?.name || bankCode,
+                seller_number: accountNumber,
+                seller_name: accountName,
+                description: fiatDescription || "Escrow Payment",
+                buyer_wallet: userAddress
+            })
+        });
+
+        const data = await response.json();
+        if (!data.status) throw new Error(data.message || "Payment initialization failed");
+        
+        showToast("Redirecting to Paystack...", 'success');
+        setTimeout(() => { window.location.href = data.data.authorization_url; }, 1000);
+
+    } catch (err: any) {
+        showToast(err.message || "Payment Error", 'error');
+    }
+  };
+
+  // DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
 
@@ -447,7 +511,6 @@ function MainDashboard() {
                     
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">YOUR EMAIL</label><input value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder="receipt@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all" /></div>
                     
-                    {/* ✅ SELLER'S EMAIL INPUT */}
                     <div><label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label><input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
 
                     <div>
@@ -476,7 +539,6 @@ function MainDashboard() {
                     <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400' : 'border-transparent text-slate-500'}`}>I'm Selling</button>
                 </div>
                 
-                {/* Visual Indicator of what is being filtered */}
                 <div className="flex items-center gap-3 pb-3">
                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">
                          Showing {mode} Orders

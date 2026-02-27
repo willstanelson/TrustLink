@@ -15,7 +15,6 @@ const SecureChat = dynamic(() => import('./SecureChat'), {
   loading: () => <div className="hidden">Loading Chat...</div>
 });
 
-// ✅ ADDED `type` to the Order interface
 type Order = {
   id: number | string;
   buyer: string;
@@ -40,7 +39,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const [showChat, setShowChat] = useState(false);
   const [releaseAmount, setReleaseAmount] = useState('');
   const [hasUnread, setHasUnread] = useState(false); 
-  const [isDbLoading, setIsDbLoading] = useState(false); // ✅ Added loading state for Fiat actions
+  const [isDbLoading, setIsDbLoading] = useState(false);
   
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
@@ -50,7 +49,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const peerAddress = isSellerView ? order.buyer : order.seller;
   const isBusy = isPending || isConfirming || isDbLoading;
 
-  // ✅ THE FIX: Extract the raw numeric ID and identify if it's Fiat
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
 
@@ -61,7 +59,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         const { data } = await supabase
             .from('messages')
             .select('sender_address')
-            .eq('order_id', rawOrderId) // ✅ Uses raw numeric ID
+            .eq('order_id', Number(rawOrderId)) 
             .order('created_at', { ascending: false })
             .limit(1);
 
@@ -75,7 +73,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
     const channel = supabase
         .channel(`notify-${rawOrderId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${rawOrderId}` }, (payload) => { // ✅ Uses raw numeric ID
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${Number(rawOrderId)}` }, (payload) => { 
             if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
                 setHasUnread(true);
             }
@@ -90,7 +88,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     setShowChat(true);
   };
 
-  // ✅ DATABASE ACTIONS
+  // ✅ DATABASE ACTIONS (Fixed with strictly Number format)
   const handleAccept = async () => {
     setIsDbLoading(true);
     const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', Number(rawOrderId));
@@ -105,9 +103,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     if (!error) onUpdate();
   };
 
-  // ✅ SPLIT PERSONALITY ACTIONS
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
+    
     if (isFiat) {
         setIsDbLoading(true);
         const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', Number(rawOrderId));
@@ -115,7 +113,12 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         if (!error) onUpdate();
     } else {
         const decimals = order.token_symbol === 'ETH' ? 18 : 6;
-        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'releaseMilestone', args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] });
+        writeContract({ 
+            address: CONTRACT_ADDRESS, 
+            abi: CONTRACT_ABI, 
+            functionName: 'releaseMilestone', 
+            args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] 
+        });
     }
   };
 
@@ -140,6 +143,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(rawOrderId)] });
     }
   };
+
   return (
     <div className={`bg-slate-800/40 border rounded-xl p-5 mb-4 transition-all ${showChat ? 'border-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]' : 'border-slate-700 hover:border-slate-600'}`}>
       
@@ -180,7 +184,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       {/* ACTION BUTTONS */}
       <div className="flex flex-wrap gap-3">
          
-         {/* A. CHAT BUTTON (With Red Dot) */}
          <button 
            onClick={openChat}
            className={`relative flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all border ${hasUnread ? 'bg-slate-700 text-white border-emerald-500' : 'bg-slate-800 text-white border-slate-600 hover:bg-slate-700'}`}
@@ -196,7 +199,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
            )}
          </button>
 
-         {/* B. CONTEXT AWARE ACTIONS */}
+         {/* CONTEXT AWARE ACTIONS */}
          {order.status !== 'PAID' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
             <>
                 {/* BUYER CONTROLS */}
@@ -226,12 +229,11 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
          )}
       </div>
 
-      {/* C. THE CHAT WINDOW */}
       <SecureChat 
          isOpen={showChat} 
          onClose={() => setShowChat(false)} 
          peerAddress={peerAddress} 
-         orderId={Number(rawOrderId)}// ✅ Passes clean numeric ID to chat
+         orderId={Number(rawOrderId)} 
       />
     </div>
   );
