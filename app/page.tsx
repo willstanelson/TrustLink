@@ -156,7 +156,7 @@ function MainDashboard() {
   
   // MODALS & NOTIFICATIONS
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
-  const [showSuccessModal, setShowSuccessModal] = useState(false); // ✅ BIG SUCCESS MODAL STATE
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
 
@@ -166,13 +166,14 @@ function MainDashboard() {
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // ✅ 1. DETECT PAYSTACK RETURN & SHOW BIG MODAL
+  // DETECT PAYSTACK RETURN
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
-        setShowSuccessModal(true); // Open the big popup!
-        fetchDbOrders(); // Refresh dashboard immediately
-        router.replace('/'); // Clean URL
+        setShowSuccessModal(true); 
+        fetchDbOrders(); 
+        setMode('fiat'); // ✅ Force tab to Fiat when returning from a Fiat payment
+        router.replace('/'); 
     }
   }, [searchParams]);
 
@@ -260,7 +261,7 @@ function MainDashboard() {
     }
   }, [isSuccess]);
 
-  // ✅ 2. DASHBOARD DATA MERGE & SORTING
+  // DASHBOARD DATA MERGE & SORTING
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
     const selling: any[] = [];
@@ -303,7 +304,6 @@ function MainDashboard() {
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            // Get timestamp for sorting (fallback to ID if DB row missing)
             timestamp: dbOrder?.created_at ? new Date(dbOrder.created_at).getTime() : Number(id) * 1000 
           };
 
@@ -336,13 +336,11 @@ function MainDashboard() {
                 statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
                 percentPaid: dbOrder.status === 'success' ? 100 : 0,
                 type: 'FIAT',
-                // Get timestamp for sorting
                 timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id
             });
         }
     });
 
-    // ✅ SORT BOTH ARRAYS: Newest First (Highest timestamp to lowest)
     buying.sort((a, b) => b.timestamp - a.timestamp);
     selling.sort((a, b) => b.timestamp - a.timestamp);
 
@@ -405,11 +403,15 @@ function MainDashboard() {
     }
   };
 
+  // ✅ 3. DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
+  const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
+  const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
 
-      {/* ✅ BIG SUCCESS MODAL */}
+      {/* BIG SUCCESS MODAL */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm transition-all duration-300">
             <div className="bg-slate-800 border border-emerald-500/30 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative flex flex-col items-center transform scale-100 opacity-100">
@@ -428,7 +430,6 @@ function MainDashboard() {
         </div>
       )}
 
-      {/* Standard Toasts (Errors/Info) */}
       {notification && (
         <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
@@ -459,6 +460,8 @@ function MainDashboard() {
         <div className="w-full max-w-md bg-slate-800/50 border border-slate-700 p-8 rounded-2xl backdrop-blur-sm shadow-2xl relative z-10">
             {!authenticated ? <button onClick={login} className="w-full bg-emerald-500 hover:bg-emerald-400 py-3 rounded-xl font-bold">Connect Wallet</button> : (
             <div className="flex flex-col gap-4">
+                
+                {/* MODE TOGGLE */}
                 <div className="bg-slate-900/80 p-1 rounded-xl flex mb-2 border border-slate-700">
                     <button onClick={() => setMode('crypto')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'crypto' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Bitcoin className="w-4 h-4" /> Crypto</button>
                     <button onClick={() => setMode('fiat')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'fiat' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Banknote className="w-4 h-4" /> Fiat</button>
@@ -505,18 +508,33 @@ function MainDashboard() {
             )}
         </div>
 
-        {/* DASHBOARD */}
+        {/* ✅ FILTERED DASHBOARD */}
         <div className="w-full mt-20 border-t border-white/10 pt-10">
-            <div className="flex gap-6 mb-6 border-b border-white/10 pb-1">
-                <button onClick={() => setDashboardTab('buying')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying' ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
-                <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400' : 'border-transparent text-slate-500'}`}>I'm Selling</button>
-                <button onClick={handleRefresh} className="ml-auto text-slate-500 hover:text-white"><RefreshCcw className="w-5 h-5" /></button>
+            <div className="flex justify-between items-end mb-6 border-b border-white/10 pb-1">
+                <div className="flex gap-6">
+                    <button onClick={() => setDashboardTab('buying')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying' ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
+                    <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400' : 'border-transparent text-slate-500'}`}>I'm Selling</button>
+                </div>
+                
+                {/* Visual Indicator of what is being filtered */}
+                <div className="flex items-center gap-3 pb-3">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">
+                         Showing {mode} Orders
+                     </span>
+                     <button onClick={handleRefresh} className="text-slate-500 hover:text-white"><RefreshCcw className="w-4 h-4" /></button>
+                </div>
             </div>
+
             <div className="space-y-4">
-                {(dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders).map((order: any) => (
+                {displayedOrders.map((order: any) => (
                     <OrderCard key={order.id} order={order} isSellerView={dashboardTab === 'selling'} userAddress={userAddress || ''} onUpdate={handleRefresh} />
                 ))}
-                {(dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders).length === 0 && <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">No active orders found.</div>}
+                
+                {displayedOrders.length === 0 && (
+                    <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">
+                        No active <span className="capitalize">{mode}</span> orders found.
+                    </div>
+                )}
             </div>
         </div>
       </main>
