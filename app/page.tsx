@@ -10,9 +10,9 @@ import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useRea
 import { sepolia } from 'wagmi/chains';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react'; // Added Suspense
 import { supabase } from '@/lib/supabaseClient'; 
-import { useSearchParams, useRouter } from 'next/navigation'; // For Paystack Return Detection
+import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, 
   ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck
@@ -120,7 +120,10 @@ const BANKS = [
     { code: '057', name: 'Zenith Bank' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-export default function Home() {
+// ==========================================
+// 2. MAIN DASHBOARD COMPONENT
+// ==========================================
+function MainDashboard() {
   const { login, authenticated, user, logout } = usePrivy();
   const { chain } = useAccount();
   const { switchChain } = useSwitchChain();
@@ -181,7 +184,6 @@ export default function Home() {
     setResolveError('');
     setAccountName('');
 
-    // ⚡️ DEV BYPASS for Test Mode
     if (account === '9999999999') {
         setTimeout(() => {
             setAccountName("Test Mode User (Bypassed)"); 
@@ -361,7 +363,7 @@ export default function Home() {
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
 
-  // ✅ 3. HANDLE FIAT PAYMENT (SENDING WALLET NOW)
+  // ✅ 3. HANDLE FIAT PAYMENT
   const handleFiatTransaction = async () => {
     if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { showToast("Please fill all fields", 'error'); return; }
     if(!accountName) { showToast("Please wait for verification", 'error'); return; }
@@ -378,7 +380,7 @@ export default function Home() {
                 seller_number: accountNumber,
                 seller_name: accountName,
                 description: fiatDescription || "Escrow Payment",
-                buyer_wallet: userAddress // <--- SENDING WALLET ADDRESS
+                buyer_wallet: userAddress
             })
         });
 
@@ -393,7 +395,6 @@ export default function Home() {
     }
   };
 
-  // ... (RENDER SECTION IS THE SAME AS BEFORE) ...
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
@@ -490,5 +491,20 @@ export default function Home() {
         </div>
       </main>
     </div>
+  );
+}
+
+// ==========================================
+// 3. WRAPPER COMPONENT (FIXES VERCEL ERROR)
+// ==========================================
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    }>
+      <MainDashboard />
+    </Suspense>
   );
 }
