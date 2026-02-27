@@ -10,7 +10,7 @@ import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useRea
 import { sepolia } from 'wagmi/chains';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import React, { useEffect, useState, useMemo, Suspense } from 'react'; // Added Suspense
+import React, { useEffect, useState, useMemo, Suspense } from 'react'; 
 import { supabase } from '@/lib/supabaseClient'; 
 import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
@@ -153,7 +153,11 @@ function MainDashboard() {
   const [dbOrders, setDbOrders] = useState<Record<number, any>>({});
   const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying'); 
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  
+  // MODALS & NOTIFICATIONS
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false); // ✅ BIG SUCCESS MODAL STATE
+  
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
 
   const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
@@ -162,11 +166,11 @@ function MainDashboard() {
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // ✅ 1. DETECT PAYSTACK RETURN
+  // ✅ 1. DETECT PAYSTACK RETURN & SHOW BIG MODAL
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
-        showToast("Payment Successful! Order Created.", 'success');
+        setShowSuccessModal(true); // Open the big popup!
         fetchDbOrders(); // Refresh dashboard immediately
         router.replace('/'); // Clean URL
     }
@@ -256,7 +260,7 @@ function MainDashboard() {
     }
   }, [isSuccess]);
 
-  // ✅ 2. DASHBOARD DATA MERGE
+  // ✅ 2. DASHBOARD DATA MERGE & SORTING
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
     const selling: any[] = [];
@@ -298,7 +302,9 @@ function MainDashboard() {
             formattedTotal: isEth ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
-            type: 'CRYPTO'
+            type: 'CRYPTO',
+            // Get timestamp for sorting (fallback to ID if DB row missing)
+            timestamp: dbOrder?.created_at ? new Date(dbOrder.created_at).getTime() : Number(id) * 1000 
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -311,7 +317,6 @@ function MainDashboard() {
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
-        // Check ownership by EMAIL OR WALLET
         const myEmail = user?.email?.address;
         const myWallet = userAddress?.toLowerCase();
         
@@ -330,10 +335,16 @@ function MainDashboard() {
                 status: dbOrder.status === 'success' ? 'PAID' : 'PENDING',
                 statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
                 percentPaid: dbOrder.status === 'success' ? 100 : 0,
-                type: 'FIAT'
+                type: 'FIAT',
+                // Get timestamp for sorting
+                timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id
             });
         }
     });
+
+    // ✅ SORT BOTH ARRAYS: Newest First (Highest timestamp to lowest)
+    buying.sort((a, b) => b.timestamp - a.timestamp);
+    selling.sort((a, b) => b.timestamp - a.timestamp);
 
     return { myBuyingOrders: buying, mySellingOrders: selling };
   }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
@@ -363,7 +374,6 @@ function MainDashboard() {
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
 
-  // ✅ 3. HANDLE FIAT PAYMENT
   const handleFiatTransaction = async () => {
     if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail) { showToast("Please fill all fields", 'error'); return; }
     if(!accountName) { showToast("Please wait for verification", 'error'); return; }
@@ -399,6 +409,26 @@ function MainDashboard() {
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
 
+      {/* ✅ BIG SUCCESS MODAL */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm transition-all duration-300">
+            <div className="bg-slate-800 border border-emerald-500/30 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative flex flex-col items-center transform scale-100 opacity-100">
+                <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+                </div>
+                <h2 className="text-3xl font-extrabold text-white mb-3">Payment Successful!</h2>
+                <p className="text-slate-400 mb-8 leading-relaxed">Your fiat payment has been securely locked in escrow. The seller has been notified.</p>
+                <button 
+                    onClick={() => setShowSuccessModal(false)}
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-extrabold text-lg py-4 rounded-xl transition-all shadow-lg"
+                >
+                    View My Order
+                </button>
+            </div>
+        </div>
+      )}
+
+      {/* Standard Toasts (Errors/Info) */}
       {notification && (
         <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
@@ -495,7 +525,7 @@ function MainDashboard() {
 }
 
 // ==========================================
-// 3. WRAPPER COMPONENT (FIXES VERCEL ERROR)
+// 3. WRAPPER COMPONENT
 // ==========================================
 export default function Home() {
   return (
