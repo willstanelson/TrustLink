@@ -314,8 +314,7 @@ function MainDashboard() {
         }
       });
     }
-
-    // FIAT ORDERS
+// FIAT ORDERS
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
@@ -324,9 +323,16 @@ function MainDashboard() {
         
         const isMyEmailAsBuyer = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail;
         const isMyWalletAsBuyer = myWallet && dbOrder.buyer_wallet_address?.toLowerCase() === myWallet;
-        
-        // ✅ MATCH SELLER BY EMAIL OR WALLET
         const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
+
+        // ✅ 1. DYNAMIC STATUS COLORS FOR FIAT
+        let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; // Default Pending
+        const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
+        
+        if (currentStatus === 'success' || currentStatus === 'completed') fiatStatusColor = "bg-slate-700 text-slate-300";
+        else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
+        else if (currentStatus === 'shipped') fiatStatusColor = "bg-blue-500/20 text-blue-400";
+        else if (currentStatus === 'accepted') fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
 
         const fiatOrderObj = {
             id: `NGN-${dbOrder.id}`,
@@ -336,80 +342,22 @@ function MainDashboard() {
             formattedTotal: Number(dbOrder.amount).toLocaleString(),
             formattedLocked: "0",
             token_symbol: 'NGN',
-            status: dbOrder.status === 'success' ? 'PAID' : 'PENDING',
-            statusColor: dbOrder.status === 'success' ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400",
-            percentPaid: dbOrder.status === 'success' ? 100 : 0,
+            status: currentStatus === 'success' ? 'PAID' : currentStatus.toUpperCase(),
+            statusColor: fiatStatusColor,
+            percentPaid: (currentStatus === 'success' || currentStatus === 'completed') ? 100 : 0,
             type: 'FIAT',
-            timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id
+            timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
+            
+            // ✅ 2. THE FIX: Teach the UI to hide the Accept button!
+            isAccepted: ['accepted', 'shipped', 'success', 'completed'].includes(currentStatus),
+            isShipped: ['shipped', 'success', 'completed'].includes(currentStatus),
+            isCompleted: ['success', 'completed'].includes(currentStatus),
+            isDisputed: currentStatus === 'disputed'
         };
 
         if (isMyEmailAsBuyer || isMyWalletAsBuyer) buying.push(fiatOrderObj);
-        if (isMyEmailAsSeller) selling.push(fiatOrderObj); // ✅ PUSH TO SELLING TAB
+        if (isMyEmailAsSeller) selling.push(fiatOrderObj); 
     });
-
-    buying.sort((a, b) => b.timestamp - a.timestamp);
-    selling.sort((a, b) => b.timestamp - a.timestamp);
-
-    return { myBuyingOrders: buying, mySellingOrders: selling };
-  }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
-
-  const handleCryptoTransaction = async () => {
-    if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
-    if (!sellerAddress || !amountInput) return;
-    if (!isAddress(sellerAddress)) { showToast("Invalid Ethereum Address", 'error'); return; }
-    if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
-
-    try {
-      const isEth = selectedAsset.symbol === 'ETH';
-      const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
-
-      if (!isEth) {
-        const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
-        if (currentAllowance < amountWei) {
-          setTxType('approve'); 
-          writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
-          showToast("Approval Request Sent...", 'info');
-          return;
-        }
-      }
-      setTxType('deposit'); 
-      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isEth ? amountWei : BigInt(0) });
-      showToast("Deposit Request Sent...", 'info');
-    } catch (err: any) { showToast("Error: " + err.message, 'error'); }
-  };
-
-  const handleFiatTransaction = async () => {
-    if(!fiatAmount || !accountNumber || !bankCode || !buyerEmail || !sellerEmail) { showToast("Please fill all fields", 'error'); return; }
-    if(!accountName) { showToast("Please wait for verification", 'error'); return; }
-
-    try {
-        showToast("Initializing Secure Checkout...", 'info');
-        const response = await fetch('/api/paystack/initiate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                amount: fiatAmount,
-                email: buyerEmail,
-                seller_email: sellerEmail, // ✅ Sending seller email
-                seller_bank: BANKS.find(b => b.code === bankCode)?.name || bankCode,
-                seller_number: accountNumber,
-                seller_name: accountName,
-                description: fiatDescription || "Escrow Payment",
-                buyer_wallet: userAddress
-            })
-        });
-
-        const data = await response.json();
-        if (!data.status) throw new Error(data.message || "Payment initialization failed");
-        
-        showToast("Redirecting to Paystack...", 'success');
-        setTimeout(() => { window.location.href = data.data.authorization_url; }, 1000);
-
-    } catch (err: any) {
-        showToast(err.message || "Payment Error", 'error');
-    }
-  };
-
   // ✅ DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);

@@ -90,45 +90,39 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     setShowChat(true);
   };
 
-  // ✅ DATABASE ACTIONS (Using update instead of upsert to protect existing data)
+  // ✅ DATABASE ACTIONS
   const handleAccept = async () => {
     setIsDbLoading(true);
-    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', rawOrderId);
+    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', Number(rawOrderId));
     setIsDbLoading(false);
     if (!error) onUpdate();
   };
 
   const handleMarkShipped = async () => {
     setIsDbLoading(true);
-    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'shipped' }).eq('id', rawOrderId);
+    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'shipped' }).eq('id', Number(rawOrderId));
     setIsDbLoading(false);
     if (!error) onUpdate();
   };
 
-  // ✅ SPLIT PERSONALITY ACTIONS (Web3 vs Database)
+  // ✅ SPLIT PERSONALITY ACTIONS
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
-    
     if (isFiat) {
         setIsDbLoading(true);
-        const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', rawOrderId);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
         if (!error) onUpdate();
     } else {
         const decimals = order.token_symbol === 'ETH' ? 18 : 6;
-        writeContract({ 
-            address: CONTRACT_ADDRESS, 
-            abi: CONTRACT_ABI, 
-            functionName: 'releaseMilestone', 
-            args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] 
-        });
+        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'releaseMilestone', args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] });
     }
   };
 
   const handleDispute = async () => {
     if (isFiat) {
         setIsDbLoading(true);
-        const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', rawOrderId);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
         if (!error) onUpdate();
     } else {
@@ -139,14 +133,13 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const handleCancel = async () => {
     if (isFiat) {
         setIsDbLoading(true);
-        const { error } = await supabase.from('escrow_orders').update({ status: 'cancelled' }).eq('id', rawOrderId);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'cancelled' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
         if (!error) onUpdate();
     } else {
         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(rawOrderId)] });
     }
   };
-
   return (
     <div className={`bg-slate-800/40 border rounded-xl p-5 mb-4 transition-all ${showChat ? 'border-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]' : 'border-slate-700 hover:border-slate-600'}`}>
       
