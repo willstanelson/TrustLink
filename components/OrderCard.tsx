@@ -6,19 +6,18 @@ import {
 } from 'lucide-react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { supabase } from '../lib/supabaseClient'; 
-import dynamic from 'next/dynamic'; // ✅ CRITICAL: Required for the Chat fix
+import dynamic from 'next/dynamic'; 
 import TrustBadge from './TrustBadge';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../app/constants';
 
-// ✅ 1. DYNAMIC CHAT IMPORT (Prevents the "WASM" Crash)
 const SecureChat = dynamic(() => import('./SecureChat'), { 
   ssr: false,
   loading: () => <div className="hidden">Loading Chat...</div>
 });
 
-// ✅ 2. FULL TYPE DEFINITION
+// ✅ ADDED `type` to the Order interface
 type Order = {
-  id: number;
+  id: number | string;
   buyer: string;
   seller: string;
   amount: bigint;
@@ -34,39 +33,39 @@ type Order = {
   formattedLocked: string;
   percentPaid: number;
   statusColor: string;
+  type: string; 
 };
 
 export default function OrderCard({ order, isSellerView, userAddress, onUpdate }: { order: Order, isSellerView: boolean, userAddress: string, onUpdate: () => void }) {
-  // ✅ 3. STATE MANAGEMENT
   const [showChat, setShowChat] = useState(false);
   const [releaseAmount, setReleaseAmount] = useState('');
-  const [hasUnread, setHasUnread] = useState(false); // <--- New: Notification State
+  const [hasUnread, setHasUnread] = useState(false); 
+  const [isDbLoading, setIsDbLoading] = useState(false); // ✅ Added loading state for Fiat actions
   
-  // ✅ 4. BLOCKCHAIN HOOKS
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Auto-refresh when a transaction finishes
   if (isSuccess) { setTimeout(onUpdate, 2000); }
 
   const peerAddress = isSellerView ? order.buyer : order.seller;
-  const isBusy = isPending || isConfirming;
+  const isBusy = isPending || isConfirming || isDbLoading;
 
-  // ✅ 5. NOTIFICATION SYSTEM (The "Listening Ear")
+  // ✅ THE FIX: Extract the raw numeric ID and identify if it's Fiat
+  const isFiat = order.type === 'FIAT';
+  const rawOrderId = String(order.id).replace('NGN-', '');
+
   useEffect(() => {
     if (!userAddress) return;
 
-    // A. Check History (Did I miss a message?)
     const checkHistory = async () => {
         const { data } = await supabase
             .from('messages')
             .select('sender_address')
-            .eq('order_id', order.id)
+            .eq('order_id', rawOrderId) // ✅ Uses raw numeric ID
             .order('created_at', { ascending: false })
             .limit(1);
 
         if (data && data.length > 0) {
-            // If the last message is NOT from me, it's unread
             if (data[0].sender_address.toLowerCase() !== userAddress.toLowerCase()) {
                 setHasUnread(true);
             }
@@ -74,11 +73,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     };
     checkHistory();
 
-    // B. Listen for New Messages (Realtime)
     const channel = supabase
-        .channel(`notify-${order.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${order.id}` }, (payload) => {
-            // If incoming message is NOT from me, trigger alert
+        .channel(`notify-${rawOrderId}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${rawOrderId}` }, (payload) => { // ✅ Uses raw numeric ID
             if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
                 setHasUnread(true);
             }
@@ -86,45 +83,70 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [order.id, userAddress]);
+  }, [order.id, userAddress, rawOrderId]);
 
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
   };
 
-  // ✅ 6. DATABASE ACTIONS (Gasless)
+  // ✅ DATABASE ACTIONS (Using update instead of upsert to protect existing data)
   const handleAccept = async () => {
-    const { error } = await supabase.from('escrow_orders').upsert({ id: order.id, seller_address: userAddress, status: 'accepted' });
+    setIsDbLoading(true);
+    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', rawOrderId);
+    setIsDbLoading(false);
     if (!error) onUpdate();
   };
 
   const handleMarkShipped = async () => {
-    const { error } = await supabase.from('escrow_orders').upsert({ id: order.id, seller_address: userAddress, status: 'shipped' });
+    setIsDbLoading(true);
+    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'shipped' }).eq('id', rawOrderId);
+    setIsDbLoading(false);
     if (!error) onUpdate();
   };
 
-  // ✅ 7. BLOCKCHAIN ACTIONS (On-Chain)
-  const handleRelease = (amountStr: string) => {
+  // ✅ SPLIT PERSONALITY ACTIONS (Web3 vs Database)
+  const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
-    const decimals = order.token_symbol === 'ETH' ? 18 : 6;
-    writeContract({ 
-        address: CONTRACT_ADDRESS, 
-        abi: CONTRACT_ABI, 
-        functionName: 'releaseMilestone', 
-        args: [BigInt(order.id), parseUnits(amountStr, decimals)] 
-    });
+    
+    if (isFiat) {
+        setIsDbLoading(true);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', rawOrderId);
+        setIsDbLoading(false);
+        if (!error) onUpdate();
+    } else {
+        const decimals = order.token_symbol === 'ETH' ? 18 : 6;
+        writeContract({ 
+            address: CONTRACT_ADDRESS, 
+            abi: CONTRACT_ABI, 
+            functionName: 'releaseMilestone', 
+            args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] 
+        });
+    }
   };
 
-  const handleDispute = () => {
-    writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(order.id)] });
+  const handleDispute = async () => {
+    if (isFiat) {
+        setIsDbLoading(true);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', rawOrderId);
+        setIsDbLoading(false);
+        if (!error) onUpdate();
+    } else {
+        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(rawOrderId)] });
+    }
   };
 
-  const handleCancel = () => {
-    writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(order.id)] });
+  const handleCancel = async () => {
+    if (isFiat) {
+        setIsDbLoading(true);
+        const { error } = await supabase.from('escrow_orders').update({ status: 'cancelled' }).eq('id', rawOrderId);
+        setIsDbLoading(false);
+        if (!error) onUpdate();
+    } else {
+        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(rawOrderId)] });
+    }
   };
 
-  // ✅ 8. RENDER
   return (
     <div className={`bg-slate-800/40 border rounded-xl p-5 mb-4 transition-all ${showChat ? 'border-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]' : 'border-slate-700 hover:border-slate-600'}`}>
       
@@ -157,9 +179,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       <div className="flex items-center gap-2 mb-6 text-xs text-slate-400 bg-slate-950/30 p-2 rounded-lg">
          <span>{isSellerView ? 'Buyer:' : 'Seller:'}</span>
          <span className="font-mono text-emerald-400">
-            {peerAddress.slice(0,6)}...{peerAddress.slice(-4)}
+            {peerAddress && peerAddress.length > 10 ? `${peerAddress.slice(0,6)}...${peerAddress.slice(-4)}` : peerAddress}
          </span>
-         <TrustBadge address={peerAddress} />
+         {!isFiat && <TrustBadge address={peerAddress} />}
       </div>
 
       {/* ACTION BUTTONS */}
@@ -173,7 +195,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
            {hasUnread ? <BellRing className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> : <MessageCircle className="w-3.5 h-3.5" />}
            {showChat ? 'Chat Open' : (hasUnread ? 'New Message!' : 'Chat')}
            
-           {/* The Red Dot Indicator */}
            {hasUnread && (
              <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4">
                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -183,7 +204,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
          </button>
 
          {/* B. CONTEXT AWARE ACTIONS */}
-         {!order.isCompleted && !order.isDisputed && (
+         {order.status !== 'PAID' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
             <>
                 {/* BUYER CONTROLS */}
                 {!isSellerView && (
@@ -202,8 +223,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                 {/* SELLER CONTROLS */}
                 {isSellerView && (
                     <>
-                        {!order.isAccepted && <button onClick={handleAccept} disabled={isBusy} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><ThumbsUp className="w-3.5 h-3.5" /> Accept Order</button>}
-                        {order.isAccepted && !order.isShipped && <button onClick={handleMarkShipped} disabled={isBusy} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><Truck className="w-3.5 h-3.5" /> Mark Shipped</button>}
+                        {!order.isAccepted && <button onClick={handleAccept} disabled={isBusy} className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2">{isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : <><ThumbsUp className="w-3.5 h-3.5" /> Accept Order</>}</button>}
+                        {order.isAccepted && !order.isShipped && <button onClick={handleMarkShipped} disabled={isBusy} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2">{isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : <><Truck className="w-3.5 h-3.5" /> Mark Shipped</>}</button>}
                         {order.isShipped && <div className="flex-[2] bg-slate-700 text-slate-400 py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 cursor-not-allowed"><CheckCheck className="w-3.5 h-3.5" /> Shipped - Waiting</div>}
                         <button onClick={handleDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg"><AlertTriangle className="w-4 h-4" /></button>
                     </>
@@ -217,7 +238,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
          isOpen={showChat} 
          onClose={() => setShowChat(false)} 
          peerAddress={peerAddress} 
-         orderId={order.id}
+         orderId={rawOrderId} // ✅ Passes clean numeric ID to chat
       />
     </div>
   );
