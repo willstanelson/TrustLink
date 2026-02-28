@@ -207,7 +207,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
          <span className="font-mono text-emerald-400">
             {peerAddress && peerAddress.length > 10 ? `${peerAddress.slice(0,6)}...${peerAddress.slice(-4)}` : peerAddress}
          </span>
-         {!isFiat && <TrustBadge address={peerAddress} />}
+         <TrustBadge address={peerAddress} />
       </div>
 
       {/* ACTION BUTTONS */}

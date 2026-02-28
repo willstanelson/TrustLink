@@ -347,7 +347,7 @@ function MainDashboard() {
         const fiatOrderObj = {
             id: `NGN-${dbOrder.id}`,
             buyer: dbOrder.buyer_email,
-            seller: dbOrder.seller_name,
+            seller: dbOrder.seller_email || dbOrder.seller_name,
             amount: BigInt(0),
             formattedTotal: Number(dbOrder.amount).toLocaleString(),
             formattedLocked: "0",

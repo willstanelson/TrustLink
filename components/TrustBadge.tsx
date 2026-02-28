@@ -18,7 +18,7 @@ export default function TrustBadge({ address }: { address: string }) {
       const { count, error } = await supabase
         .from('escrow_orders')
         .select('*', { count: 'exact', head: true })
-        .or(`seller_address.ilike.${address},seller_email.ilike.${address}`)
+        .or(`seller_address.eq.${address},seller_email.eq.${address}`)
         .in('status', ['completed', 'success']); // The two statuses that mean "Funds Released"
 
       if (!error && count !== null) {
