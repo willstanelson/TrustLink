@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { formatEther, formatUnits, parseUnits } from 'viem';
 import { 
   MessageCircle, AlertTriangle, CheckCircle, Package, 
@@ -41,6 +41,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const [hasUnread, setHasUnread] = useState(false); 
   const [isDbLoading, setIsDbLoading] = useState(false);
   
+  // ✅ FIX: Keep track of whether the chat is currently open
+  const chatOpenRef = useRef(showChat);
+
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -52,19 +55,34 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
 
+  // ✅ FIX: Continuously update the "read time" if the user is sitting in the chat
+  useEffect(() => {
+      chatOpenRef.current = showChat;
+      if (showChat) {
+          localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+      }
+  }, [showChat, rawOrderId]);
+
   useEffect(() => {
     if (!userAddress) return;
 
     const checkHistory = async () => {
         const { data } = await supabase
             .from('messages')
-            .select('sender_address')
+            .select('created_at, sender_address')
             .eq('order_id', Number(rawOrderId)) 
             .order('created_at', { ascending: false })
             .limit(1);
 
         if (data && data.length > 0) {
-            if (data[0].sender_address.toLowerCase() !== userAddress.toLowerCase()) {
+            const isFromOther = data[0].sender_address.toLowerCase() !== userAddress.toLowerCase();
+            
+            // ✅ FIX: Check the browser's memory for the last time we read this chat
+            const lastRead = localStorage.getItem(`chat_read_${rawOrderId}`);
+            const msgTime = new Date(data[0].created_at).getTime();
+
+            // Only show red dot if we haven't read it, or the message is newer than our last read
+            if (isFromOther && (!lastRead || msgTime > Number(lastRead))) {
                 setHasUnread(true);
             }
         }
@@ -75,7 +93,12 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         .channel(`notify-${rawOrderId}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${Number(rawOrderId)}` }, (payload) => { 
             if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
-                setHasUnread(true);
+                // ✅ FIX: Only alert if the chat window is actually closed!
+                if (!chatOpenRef.current) {
+                    setHasUnread(true);
+                } else {
+                    localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+                }
             }
         })
         .subscribe();
@@ -83,9 +106,16 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     return () => { supabase.removeChannel(channel); };
   }, [order.id, userAddress, rawOrderId]);
 
+  // ✅ FIX: Save read receipt when opening OR closing chat
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
+    localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+  };
+
+  const closeChat = () => {
+    setShowChat(false);
+    localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
   };
 
   const handleAccept = async () => {
@@ -212,7 +242,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                             </div>
                         )}
 
-                        {/* ✅ THE FIX: Only show input box for Crypto. Force single button for Fiat. */}
                         {order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 {isFiat ? (
@@ -245,7 +274,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
       <SecureChat 
          isOpen={showChat} 
-         onClose={() => setShowChat(false)} 
+         onClose={closeChat} // ✅ FIX: Calls the new closeChat function to save memory!
          peerAddress={peerAddress} 
          orderId={Number(rawOrderId)} 
       />
