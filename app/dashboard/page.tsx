@@ -224,7 +224,9 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode]);
 
-  const userAddress = user?.wallet?.address;
+  // ✅ FIX: Prioritize the active Wagmi transaction wallet over the initial login wallet
+  const { address: wagmiAddress } = useAccount();
+  const userAddress = wagmiAddress || user?.wallet?.address;
   const isWrongNetwork = authenticated && chain && chain.id !== sepolia.id;
 
   const fetchDbOrders = async () => {
@@ -243,7 +245,8 @@ function MainDashboard() {
     args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS] : undefined,
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
-  const { data: totalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
+  // ✅ FIX: Allow the app to refetch the total count after a new order
+  const { data: totalEscrows, refetch: refetchTotalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
   const indexesToFetch = useMemo(() => {
@@ -259,7 +262,14 @@ function MainDashboard() {
     query: { refetchInterval: 5000 }
   });
 
-  const handleRefresh = () => { refetchEth(); refetchOrders(); if (selectedAsset.symbol === 'USDC') refetchAllowance?.(); fetchDbOrders(); };
+  // ✅ FIX: Force the app to recount the total escrows before refreshing the list
+  const handleRefresh = () => { 
+      refetchTotalEscrows(); 
+      refetchOrders(); 
+      refetchEth(); 
+      if (selectedAsset.symbol === 'USDC') refetchAllowance?.(); 
+      fetchDbOrders(); 
+  };
 
   useEffect(() => {
     if (isSuccess) {
