@@ -130,16 +130,13 @@ function MainDashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  // UI State
   const [mode, setMode] = useState<'crypto' | 'fiat'>('crypto');
   
-  // Crypto Form State
   const [sellerAddress, setSellerAddress] = useState('');
   const [amountInput, setAmountInput] = useState('');
   const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
   const [isTokenListOpen, setIsTokenListOpen] = useState(false);
   
-  // Fiat Form State
   const [fiatAmount, setFiatAmount] = useState('');
   const [buyerEmail, setBuyerEmail] = useState(''); 
   const [sellerEmail, setSellerEmail] = useState(''); 
@@ -155,7 +152,6 @@ function MainDashboard() {
   const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying'); 
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   
-  // MODALS & NOTIFICATIONS
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
@@ -167,14 +163,27 @@ function MainDashboard() {
   useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // DETECT PAYSTACK RETURN
+  // ✅ FIX: VERIFY PAYMENT ON RETURN INSTEAD OF BLIND TRUST
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
-        setShowSuccessModal(true); 
-        fetchDbOrders(); 
-        setMode('fiat'); // Force tab to Fiat when returning
-        router.replace('/'); 
+        setMode('fiat'); 
+        
+        fetch('/api/paystack/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reference: trxref })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status) {
+                setShowSuccessModal(true); // Only show if Paystack says "success"
+            } else {
+                showToast("Payment was cancelled or failed.", "error");
+            }
+            fetchDbOrders(); 
+            router.replace('/'); 
+        });
     }
   }, [searchParams]);
 
@@ -184,7 +193,6 @@ function MainDashboard() {
     }
   }, [user]);
 
-  // --- BANK RESOLVER ---
   const resolveBankAccount = async (account: string, bank: string) => {
     setIsResolving(true);
     setResolveError('');
@@ -262,7 +270,6 @@ function MainDashboard() {
     }
   }, [isSuccess]);
 
-  // DASHBOARD DATA MERGE & SORTING
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
     const selling: any[] = [];
@@ -314,9 +321,14 @@ function MainDashboard() {
       });
     }
 
-    // FIAT ORDERS (UPDATED LOGIC HERE)
+    // FIAT ORDERS
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
+
+        const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
+        
+        // ✅ FIX: Completely hide unpaid or canceled orders from the dashboard
+        if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
         const myEmail = user?.email?.address?.toLowerCase();
         const myWallet = userAddress?.toLowerCase();
@@ -325,9 +337,7 @@ function MainDashboard() {
         const isMyWalletAsBuyer = myWallet && dbOrder.buyer_wallet_address?.toLowerCase() === myWallet;
         const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
 
-        // Dynamic Status & Colors for Fiat
-        let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; // Default Pending
-        const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
+        let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; 
         
         if (currentStatus === 'success' || currentStatus === 'completed') fiatStatusColor = "bg-slate-700 text-slate-300";
         else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
@@ -347,8 +357,6 @@ function MainDashboard() {
             percentPaid: (currentStatus === 'success' || currentStatus === 'completed') ? 100 : 0,
             type: 'FIAT',
             timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
-            
-            // ✅ Teaches the UI what these statuses mean so buttons update correctly
             isAccepted: ['accepted', 'shipped', 'success', 'completed'].includes(currentStatus),
             isShipped: ['shipped', 'success', 'completed'].includes(currentStatus),
             isCompleted: ['success', 'completed'].includes(currentStatus),
@@ -422,7 +430,6 @@ function MainDashboard() {
     }
   };
 
-  // DYNAMICALLY FILTER THE ORDERS BASED ON CURRENT MODE
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
 
@@ -430,7 +437,6 @@ function MainDashboard() {
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
 
-      {/* BIG SUCCESS MODAL */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm transition-all duration-300">
             <div className="bg-slate-800 border border-emerald-500/30 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative flex flex-col items-center transform scale-100 opacity-100">
@@ -456,7 +462,6 @@ function MainDashboard() {
         </div>
       )}
 
-      {/* NAVBAR */}
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold">TrustLink</span></div>
         {authenticated ? (
@@ -471,22 +476,18 @@ function MainDashboard() {
         ) : <button onClick={login} className="bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full text-sm font-bold">Log In</button>}
       </nav>
 
-      {/* MAIN CONTENT */}
       <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
         <h1 className="text-5xl font-extrabold mb-8 text-center leading-tight">Trust is no longer <br /><span className="text-emerald-400">a leap of faith.</span></h1>
         
-        {/* FORM BOX */}
         <div className="w-full max-w-md bg-slate-800/50 border border-slate-700 p-8 rounded-2xl backdrop-blur-sm shadow-2xl relative z-10">
             {!authenticated ? <button onClick={login} className="w-full bg-emerald-500 hover:bg-emerald-400 py-3 rounded-xl font-bold">Connect Wallet</button> : (
             <div className="flex flex-col gap-4">
                 
-                {/* MODE TOGGLE */}
                 <div className="bg-slate-900/80 p-1 rounded-xl flex mb-2 border border-slate-700">
                     <button onClick={() => setMode('crypto')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'crypto' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Bitcoin className="w-4 h-4" /> Crypto</button>
                     <button onClick={() => setMode('fiat')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'fiat' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Banknote className="w-4 h-4" /> Fiat</button>
                 </div>
 
-                {/* CRYPTO FORM */}
                 {mode === 'crypto' && (
                     <>
                     <div className="relative">
@@ -501,7 +502,6 @@ function MainDashboard() {
                     </>
                 )}
 
-                {/* FIAT FORM */}
                 {mode === 'fiat' && (
                     <>
                     <div className="grid grid-cols-3 gap-2">
@@ -531,7 +531,6 @@ function MainDashboard() {
             )}
         </div>
 
-        {/* ✅ FILTERED DASHBOARD */}
         <div className="w-full mt-20 border-t border-white/10 pt-10">
             <div className="flex justify-between items-end mb-6 border-b border-white/10 pb-1">
                 <div className="flex gap-6">
@@ -564,9 +563,6 @@ function MainDashboard() {
   );
 }
 
-// ==========================================
-// 3. WRAPPER COMPONENT
-// ==========================================
 export default function Home() {
   return (
     <Suspense fallback={

@@ -9,7 +9,6 @@ const supabase = createClient(
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    // ✅ 1. ADDED seller_email HERE
     const { amount, email, seller_email, seller_bank, seller_number, seller_name, description, buyer_wallet } = body;
 
     if (!amount || !email || !seller_email) {
@@ -18,7 +17,6 @@ export async function POST(request: Request) {
 
     const amountInKobo = parseFloat(amount) * 100;
 
-    // 2. Initialize Paystack
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
@@ -47,7 +45,6 @@ export async function POST(request: Request) {
 
     if (!res.ok) throw new Error(data.message || "Paystack initialization failed");
 
-    // 3. Save to Supabase
     const { error: dbError } = await supabase
         .from('escrow_orders')
         .insert([
@@ -56,12 +53,12 @@ export async function POST(request: Request) {
                 seller_address: "0xFIAT0000000000000000000000000000000000",
                 buyer_email: email,
                 buyer_wallet_address: buyer_wallet,
-                seller_email: seller_email, // ✅ 2. SAVING SELLER EMAIL
+                seller_email: seller_email, 
                 seller_name: seller_name,
                 seller_bank_details: `${seller_bank} - ${seller_number}`,
                 amount: parseFloat(amount),
                 currency: 'NGN',
-                status: 'PENDING',
+                status: 'AWAITING_PAYMENT', // ✅ FIX: Mark as waiting instead of assuming success
                 description: description,
                 paystack_ref: data.data.reference
             }
