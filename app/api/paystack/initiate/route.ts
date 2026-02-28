@@ -37,7 +37,7 @@ export async function POST(request: Request) {
                 { display_name: "Description", variable_name: "description", value: description }
             ]
         },
-        callback_url: "https://trust-link-sooty.vercel.app/"
+        callback_url: "https://trust-link-sooty.vercel.app/dashboard"
       }),
     });
 
