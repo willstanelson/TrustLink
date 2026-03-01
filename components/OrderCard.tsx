@@ -120,16 +120,55 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const handleAccept = async () => {
     setIsDbLoading(true);
-    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'accepted' }).eq('id', Number(rawOrderId));
+    
+    // ✅ FIX: Build a complete payload so Supabase doesn't reject fresh Crypto orders
+    const payload: any = { 
+        id: Number(rawOrderId), 
+        seller_address: userAddress, 
+        status: 'accepted' 
+    };
+
+    if (!isFiat) {
+        payload.buyer_wallet_address = order.buyer;
+        payload.amount = Number(order.formattedTotal.replace(/,/g, ''));
+        payload.currency = order.token_symbol;
+    }
+
+    const { error } = await supabase.from('escrow_orders').upsert(payload);
     setIsDbLoading(false);
-    if (!error) onUpdate();
+    
+    if (error) {
+        console.error("Supabase Accept Error:", error);
+        alert(`Database Error: ${error.message}`); // 🚨 This will instantly pop up the exact error if it fails!
+    } else {
+        onUpdate();
+    }
   };
 
   const handleMarkShipped = async () => {
     setIsDbLoading(true);
-    const { error } = await supabase.from('escrow_orders').update({ seller_address: userAddress, status: 'shipped' }).eq('id', Number(rawOrderId));
+    
+    const payload: any = { 
+        id: Number(rawOrderId), 
+        seller_address: userAddress, 
+        status: 'shipped' 
+    };
+
+    if (!isFiat) {
+        payload.buyer_wallet_address = order.buyer;
+        payload.amount = Number(order.formattedTotal.replace(/,/g, ''));
+        payload.currency = order.token_symbol;
+    }
+
+    const { error } = await supabase.from('escrow_orders').upsert(payload);
     setIsDbLoading(false);
-    if (!error) onUpdate();
+    
+    if (error) {
+        console.error("Supabase Shipped Error:", error);
+        alert(`Database Error: ${error.message}`);
+    } else {
+        onUpdate();
+    }
   };
 
   const handleRelease = async (amountStr: string) => {
@@ -274,7 +313,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
       <SecureChat 
          isOpen={showChat} 
-         onClose={closeChat} // ✅ FIX: Calls the new closeChat function to save memory!
+         onClose={closeChat} 
          peerAddress={peerAddress} 
          orderId={Number(rawOrderId)} 
       />
