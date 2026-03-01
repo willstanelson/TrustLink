@@ -31,7 +31,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         },
         // ✅ THIS IS THE MAGIC LINE: It creates the embedded wallet for Gmail users!
         embeddedWallets: {
-          createOnLogin: 'users-without-wallets',
+          ethereum: {
+            createOnLogin: 'users-without-wallets',
+          },
         },
       }}
     >
