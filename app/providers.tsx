@@ -24,6 +24,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       // 👇 IMPORTANT: PUT YOUR ACTUAL PRIVY APP ID HERE!
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || "YOUR_PRIVY_APP_ID_HERE"} 
       config={{
+        // ✅ THE FIX: Tell Privy to specifically lock onto Sepolia
+        defaultChain: sepolia,
+        supportedChains: [sepolia],
+        
         appearance: { 
           theme: 'dark', 
           accentColor: '#10b981', // TrustLink Emerald
