@@ -182,7 +182,8 @@ function MainDashboard() {
                 showToast("Payment was cancelled or failed.", "error");
             }
             fetchDbOrders(); 
-            router.replace('/'); 
+            // ✅ FIX: Stay on the dashboard!
+            router.replace('/dashboard'); 
         });
     }
   }, [searchParams]);
