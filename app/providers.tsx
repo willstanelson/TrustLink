@@ -1,41 +1,42 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
-import { createConfig, WagmiProvider } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
-import { http } from 'viem';
+import { WagmiProvider, createConfig } from '@privy-io/wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { sepolia } from 'wagmi/chains';
+import { http } from 'wagmi';
+import React from 'react';
 
-// 1. Setup Wagmi Config
-const config = createConfig({
+// 1. Setup the React Query Client (Required by Wagmi)
+const queryClient = new QueryClient();
+
+// 2. Setup the Wagmi Config using Privy's custom wrapper
+export const wagmiConfig = createConfig({
   chains: [sepolia],
   transports: {
     [sepolia.id]: http(),
   },
 });
 
-// 2. Setup Query Client
-const queryClient = new QueryClient();
-
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <PrivyProvider
-      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ''}
+      // 👇 IMPORTANT: PUT YOUR ACTUAL PRIVY APP ID HERE!
+      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || "YOUR_PRIVY_APP_ID_HERE"} 
       config={{
-        // ✅ FIX: Nest configuration under 'ethereum' to satisfy strict Types
-        embeddedWallets: {
-          ethereum: {
-            createOnLogin: 'users-without-wallets',
-          },
+        appearance: { 
+          theme: 'dark', 
+          accentColor: '#10b981', // TrustLink Emerald
+          logo: 'https://trust-link-sooty.vercel.app/favicon.ico' // Optional
         },
-        appearance: {
-          theme: 'dark',
-          accentColor: '#10b981', // Matches your Emerald-500 theme
+        // ✅ THIS IS THE MAGIC LINE: It creates the embedded wallet for Gmail users!
+        embeddedWallets: {
+          createOnLogin: 'users-without-wallets',
         },
       }}
     >
       <QueryClientProvider client={queryClient}>
-        <WagmiProvider config={config}>
+        <WagmiProvider config={wagmiConfig}>
           {children}
         </WagmiProvider>
       </QueryClientProvider>

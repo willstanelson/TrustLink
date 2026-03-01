@@ -322,7 +322,7 @@ function MainDashboard() {
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            timestamp: dbOrder?.created_at ? new Date(dbOrder.created_at).getTime() : Number(id) * 1000 
+            timestamp: Number(id) // ✅ FIX: Crypto orders now sort perfectly by their exact Blockchain ID 
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
