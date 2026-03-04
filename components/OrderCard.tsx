@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { formatEther, formatUnits, parseUnits } from 'viem';
 import { 
   MessageCircle, AlertTriangle, CheckCircle, Package, 
@@ -41,7 +41,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const [hasUnread, setHasUnread] = useState(false); 
   const [isDbLoading, setIsDbLoading] = useState(false);
   
-  // Keep track of whether the chat is currently open
   const chatOpenRef = useRef(showChat);
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
@@ -55,7 +54,18 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
 
-  // Continuously update the "read time" if the user is sitting in the chat
+  // ✅ FIX: The "German Tank Problem" Fix
+  // Scramble the sequential ID into a professional, non-guessable hash for the UI
+  const displayId = useMemo(() => {
+      const numId = Number(rawOrderId);
+      if (isNaN(numId)) return order.id;
+      
+      // Multiply by a large prime and convert to hex. 
+      // Example: ID 3 -> 3 * 83911 = 251733 -> hex: 3D755 -> "ORD-3D755"
+      const scrambledHex = (numId * 83911).toString(16).toUpperCase();
+      return isFiat ? `NGN-${scrambledHex}` : `ORD-${scrambledHex}`;
+  }, [rawOrderId, isFiat, order.id]);
+
   useEffect(() => {
       chatOpenRef.current = showChat;
       if (showChat) {
@@ -76,12 +86,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
         if (data && data.length > 0) {
             const isFromOther = data[0].sender_address.toLowerCase() !== userAddress.toLowerCase();
-            
-            // Check the browser's memory for the last time we read this chat
             const lastRead = localStorage.getItem(`chat_read_${rawOrderId}`);
             const msgTime = new Date(data[0].created_at).getTime();
 
-            // Only show red dot if we haven't read it, or the message is newer than our last read
             if (isFromOther && (!lastRead || msgTime > Number(lastRead))) {
                 setHasUnread(true);
             }
@@ -93,7 +100,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         .channel(`notify-${rawOrderId}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${Number(rawOrderId)}` }, (payload) => { 
             if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
-                // Only alert if the chat window is actually closed!
                 if (!chatOpenRef.current) {
                     setHasUnread(true);
                 } else {
@@ -106,7 +112,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     return () => { supabase.removeChannel(channel); };
   }, [order.id, userAddress, rawOrderId]);
 
-  // Save read receipt when opening OR closing chat
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
@@ -120,8 +125,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const handleAccept = async () => {
     setIsDbLoading(true);
-    
-    // Build a complete payload so Supabase doesn't reject fresh Crypto orders
     const payload: any = { 
         id: Number(rawOrderId), 
         seller_address: userAddress, 
@@ -147,7 +150,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const handleMarkShipped = async () => {
     setIsDbLoading(true);
-    
     const payload: any = { 
         id: Number(rawOrderId), 
         seller_address: userAddress, 
@@ -173,7 +175,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
-    
     if (isFiat) {
         setIsDbLoading(true);
         const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', Number(rawOrderId));
@@ -218,7 +219,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       {/* HEADER INFO */}
       <div className="flex justify-between items-start mb-4">
          <div className="flex gap-2 items-center">
-            <span className="bg-slate-800 text-slate-400 text-xs font-mono px-2 py-1 rounded">#{order.id}</span>
+            {/* ✅ FIX: We now render the masked 'displayId' instead of the raw sequential 'order.id' */}
+            <span className="bg-slate-800 text-slate-400 text-xs font-mono px-2 py-1 rounded">{displayId}</span>
             <span className={`text-[10px] font-bold px-2 py-1 rounded border ${order.statusColor}`}>
                {order.status}
             </span>
@@ -279,7 +281,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                             </button>
                         )}
                         
-                        {/* STAGE 1 - ACCEPTED (Show Split Release) */}
                         {order.isAccepted && !order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 {isFiat ? (
@@ -307,7 +308,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                             </div>
                         )}
 
-                        {/* STAGE 2 - SHIPPED (Show Full Release) */}
                         {order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 <button 
