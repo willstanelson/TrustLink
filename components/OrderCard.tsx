@@ -54,7 +54,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
 
-  // ✅ FIX: The "German Tank Problem" Fix
+  // The "German Tank Problem" Fix
   // Scramble the sequential ID into a professional, non-guessable hash for the UI
   const displayId = useMemo(() => {
       const numId = Number(rawOrderId);
@@ -175,7 +175,15 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
+    
     if (isFiat) {
+        // ✅ FIX: Prevent partial fiat releases from blindly completing the order until Paystack Splits are built
+        const totalAmount = Number(order.formattedTotal.replace(/,/g, ''));
+        if (Number(amountStr) < totalAmount) {
+            alert("Fiat partial releases are locked until we wire up the Paystack Split API! Let's build that next.");
+            return;
+        }
+
         setIsDbLoading(true);
         const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
@@ -219,7 +227,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       {/* HEADER INFO */}
       <div className="flex justify-between items-start mb-4">
          <div className="flex gap-2 items-center">
-            {/* ✅ FIX: We now render the masked 'displayId' instead of the raw sequential 'order.id' */}
             <span className="bg-slate-800 text-slate-400 text-xs font-mono px-2 py-1 rounded">{displayId}</span>
             <span className={`text-[10px] font-bold px-2 py-1 rounded border ${order.statusColor}`}>
                {order.status}
@@ -281,30 +288,23 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                             </button>
                         )}
                         
+                        {/* ✅ FIX: UI unified. Input box now shows for both Fiat and Crypto split releases. */}
                         {order.isAccepted && !order.isShipped && (
                             <div className="flex-[2] flex gap-2">
-                                {isFiat ? (
-                                    <button onClick={() => handleRelease(order.formattedLocked)} disabled={isBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3 flex items-center justify-center">
-                                        {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release Split Amount"}
-                                    </button>
-                                ) : (
-                                    <>
-                                        <input 
-                                            type="number" 
-                                            placeholder="0.00" 
-                                            value={releaseAmount} 
-                                            onChange={(e) => setReleaseAmount(e.target.value)} 
-                                            className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none" 
-                                        />
-                                        <button 
-                                            onClick={() => handleRelease(releaseAmount)} 
-                                            disabled={isBusy || !releaseAmount} 
-                                            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center"
-                                        >
-                                            {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Split Release"}
-                                        </button>
-                                    </>
-                                )}
+                                <input 
+                                    type="number" 
+                                    placeholder="0.00" 
+                                    value={releaseAmount} 
+                                    onChange={(e) => setReleaseAmount(e.target.value)} 
+                                    className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none" 
+                                />
+                                <button 
+                                    onClick={() => handleRelease(releaseAmount)} 
+                                    disabled={isBusy || !releaseAmount} 
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center"
+                                >
+                                    {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Split Release"}
+                                </button>
                             </div>
                         )}
 
