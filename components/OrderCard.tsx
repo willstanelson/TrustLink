@@ -173,14 +173,16 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     }
   };
 
-  // ✅ FIX: The clean handleRelease function talking directly to our new backend
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
+    
+    // ✅ FIX: Strip commas out of formatted numbers (e.g. "3,000" -> "3000") so JS can do the math!
+    const cleanAmountStr = String(amountStr).replace(/,/g, '');
     
     if (isFiat) {
         setIsDbLoading(true);
         try {
-            const releaseNum = Number(amountStr);
+            const releaseNum = Number(cleanAmountStr); // Now perfectly reads 3000
 
             const response = await fetch('/api/paystack/release', {
                 method: 'POST',
@@ -212,7 +214,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             address: CONTRACT_ADDRESS, 
             abi: CONTRACT_ABI, 
             functionName: 'releaseMilestone', 
-            args: [BigInt(rawOrderId), parseUnits(amountStr, decimals)] 
+            args: [BigInt(rawOrderId), parseUnits(cleanAmountStr, decimals)] 
         });
     }
   };
