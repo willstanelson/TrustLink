@@ -177,17 +177,37 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     if (!amountStr) return;
     
     if (isFiat) {
-        // ✅ FIX: Prevent partial fiat releases from blindly completing the order until Paystack Splits are built
-        const totalAmount = Number(order.formattedTotal.replace(/,/g, ''));
-        if (Number(amountStr) < totalAmount) {
-            alert("Fiat partial releases are locked until we wire up the Paystack Split API! Let's build that next.");
-            return;
-        }
-
         setIsDbLoading(true);
-        const { error } = await supabase.from('escrow_orders').update({ status: 'success' }).eq('id', Number(rawOrderId));
-        setIsDbLoading(false);
-        if (!error) onUpdate();
+        try {
+            const totalAmount = Number(order.formattedTotal.replace(/,/g, ''));
+            const releaseNum = Number(amountStr);
+            const isPartial = releaseNum < totalAmount;
+
+            // ✅ Hit our new Monetization API instead of Supabase directly
+            const response = await fetch('/api/paystack/release', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: rawOrderId,
+                    releaseAmount: releaseNum,
+                    isPartial: isPartial
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.status) {
+                alert(data.message); // Shows the cool "TrustLink Fee collected" message!
+                onUpdate();
+            } else {
+                alert(`Release Failed: ${data.message}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Network error processing release.");
+        } finally {
+            setIsDbLoading(false);
+        }
     } else {
         const decimals = order.token_symbol === 'ETH' ? 18 : 6;
         writeContract({ 
