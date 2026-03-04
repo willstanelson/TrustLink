@@ -130,41 +130,37 @@ export async function POST(req: Request) {
         }
 
         // 3. THE TRUSTLINK MONETIZATION ENGINE (2% Fee)
+        const totalAmount = Number(order.amount);
+        const previouslyReleased = Number(order.released_amount || 0);
+        const remainingBalance = totalAmount - previouslyReleased;
         const totalToRelease = Number(releaseAmount);
-        const trustLinkFee = totalToRelease * 0.02; // 2% cut for William
+
+        if (totalToRelease > remainingBalance) {
+            return NextResponse.json({ status: false, message: `Cannot release more than the locked balance (₦${remainingBalance}).` }, { status: 400 });
+        }
+
+        const trustLinkFee = totalToRelease * 0.02; // 2% cut for you
         const payoutAmount = totalToRelease - trustLinkFee;
 
         // 4. Create a Transfer Recipient in Paystack
         const recipientResponse = await fetch('https://api.paystack.co/transferrecipient', {
             method: 'POST',
-            headers: {
-                Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                type: "nuban",
-                name: order.seller_name || "TrustLink Seller",
-                account_number: accountNumber,
-                bank_code: bankCode
-            })
+            headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: "nuban", name: order.seller_name || "TrustLink Seller", account_number: accountNumber, bank_code: bankCode })
         });
 
         const recipientData = await recipientResponse.json();
         
         if (!recipientData.status) {
             console.warn("Paystack Recipient Creation Failed:", recipientData.message);
-            // If it fails (e.g., test numbers), we still update DB so your local testing isn't blocked forever
         } else {
             // 5. Fire the actual money transfer to the seller's bank
             const transferResponse = await fetch('https://api.paystack.co/transfer', {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    source: "balance", // Draws from your Paystack main balance
-                    amount: Math.round(payoutAmount * 100), // Paystack requires amount in kobo!
+                    source: "balance", 
+                    amount: Math.round(payoutAmount * 100), 
                     recipient: recipientData.data.recipient_code,
                     reason: `TrustLink Escrow Release (Order NGN-${orderId})`
                 })
@@ -173,13 +169,19 @@ export async function POST(req: Request) {
             if (!transferData.status) console.warn("Transfer Failed:", transferData.message);
         }
 
-        // 6. Update Supabase
-        // If it's a partial release, we set a new custom status. Otherwise, it's a full success.
-        const newStatus = isPartial ? 'partially_released' : 'success';
+        // 6. Update Supabase with the new running total
+        const newReleasedAmount = previouslyReleased + totalToRelease;
+        
+        let newStatus = order.status;
+        if (newReleasedAmount >= totalAmount) {
+            newStatus = 'success'; // Fully paid
+        } else if (order.status !== 'shipped') {
+            newStatus = 'partially_released'; // Partially paid, but not yet shipped
+        }
         
         const { error: updateError } = await supabase
             .from('escrow_orders')
-            .update({ status: newStatus })
+            .update({ status: newStatus, released_amount: newReleasedAmount })
             .eq('id', Number(orderId));
 
         if (updateError) throw new Error(updateError.message);

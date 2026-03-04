@@ -360,7 +360,7 @@ function MainDashboard() {
       });
     }
 
-    // FIAT ORDERS
+    // ✅ FIX: UPDATED FIAT ORDERS PARSING TO TRACK RELEASED AMOUNT
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
@@ -378,27 +378,34 @@ function MainDashboard() {
 
         let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; 
         
-        if (currentStatus === 'success' || currentStatus === 'completed') fiatStatusColor = "bg-slate-700 text-slate-300";
+        if (['success', 'completed'].includes(currentStatus)) fiatStatusColor = "bg-slate-700 text-slate-300";
         else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
         else if (currentStatus === 'shipped') fiatStatusColor = "bg-blue-500/20 text-blue-400";
-        else if (currentStatus === 'accepted') fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
+        else if (['accepted', 'partially_released'].includes(currentStatus)) fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
+
+        // ✅ Calculate real locked balance using the new database column
+        const totalAmt = Number(dbOrder.amount || 0);
+        const releasedAmt = Number(dbOrder.released_amount || 0);
+        const lockedAmt = totalAmt - releasedAmt;
+        const isFullyPaid = ['success', 'completed'].includes(currentStatus);
+        const percentPaid = isFullyPaid ? 100 : (totalAmt > 0 ? Math.round((releasedAmt / totalAmt) * 100) : 0);
 
         const fiatOrderObj = {
             id: `NGN-${dbOrder.id}`,
             buyer: dbOrder.buyer_email,
             seller: dbOrder.seller_email || dbOrder.seller_name,
             amount: BigInt(0),
-            formattedTotal: Number(dbOrder.amount).toLocaleString(),
-            formattedLocked: "0",
+            formattedTotal: totalAmt.toLocaleString(),
+            formattedLocked: lockedAmt.toLocaleString(), // ✅ Shows remaining balance!
             token_symbol: 'NGN',
-            status: currentStatus === 'success' ? 'PAID' : currentStatus.toUpperCase(),
+            status: isFullyPaid ? 'PAID' : currentStatus.toUpperCase().replace('_', ' '),
             statusColor: fiatStatusColor,
-            percentPaid: (currentStatus === 'success' || currentStatus === 'completed') ? 100 : 0,
+            percentPaid: percentPaid,
             type: 'FIAT',
             timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
-            isAccepted: ['accepted', 'shipped', 'success', 'completed'].includes(currentStatus),
+            isAccepted: ['accepted', 'partially_released', 'shipped', 'success', 'completed'].includes(currentStatus),
             isShipped: ['shipped', 'success', 'completed'].includes(currentStatus),
-            isCompleted: ['success', 'completed'].includes(currentStatus),
+            isCompleted: isFullyPaid,
             isDisputed: currentStatus === 'disputed'
         };
 

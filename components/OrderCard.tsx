@@ -173,31 +173,28 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     }
   };
 
+  // ✅ FIX: The clean handleRelease function talking directly to our new backend
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
     
     if (isFiat) {
         setIsDbLoading(true);
         try {
-            const totalAmount = Number(order.formattedTotal.replace(/,/g, ''));
             const releaseNum = Number(amountStr);
-            const isPartial = releaseNum < totalAmount;
 
-            // ✅ Hit our new Monetization API instead of Supabase directly
             const response = await fetch('/api/paystack/release', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     orderId: rawOrderId,
-                    releaseAmount: releaseNum,
-                    isPartial: isPartial
+                    releaseAmount: releaseNum
                 })
             });
 
             const data = await response.json();
             
             if (data.status) {
-                alert(data.message); // Shows the cool "TrustLink Fee collected" message!
+                alert(data.message); 
                 onUpdate();
             } else {
                 alert(`Release Failed: ${data.message}`);
@@ -207,6 +204,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             alert("Network error processing release.");
         } finally {
             setIsDbLoading(false);
+            setReleaseAmount(''); // Clear the input box
         }
     } else {
         const decimals = order.token_symbol === 'ETH' ? 18 : 6;
@@ -308,7 +306,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                             </button>
                         )}
                         
-                        {/* ✅ FIX: UI unified. Input box now shows for both Fiat and Crypto split releases. */}
                         {order.isAccepted && !order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 <input 
