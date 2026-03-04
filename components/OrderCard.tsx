@@ -41,7 +41,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const [hasUnread, setHasUnread] = useState(false); 
   const [isDbLoading, setIsDbLoading] = useState(false);
   
-  // ✅ FIX: Keep track of whether the chat is currently open
+  // Keep track of whether the chat is currently open
   const chatOpenRef = useRef(showChat);
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
@@ -55,7 +55,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
 
-  // ✅ FIX: Continuously update the "read time" if the user is sitting in the chat
+  // Continuously update the "read time" if the user is sitting in the chat
   useEffect(() => {
       chatOpenRef.current = showChat;
       if (showChat) {
@@ -77,7 +77,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         if (data && data.length > 0) {
             const isFromOther = data[0].sender_address.toLowerCase() !== userAddress.toLowerCase();
             
-            // ✅ FIX: Check the browser's memory for the last time we read this chat
+            // Check the browser's memory for the last time we read this chat
             const lastRead = localStorage.getItem(`chat_read_${rawOrderId}`);
             const msgTime = new Date(data[0].created_at).getTime();
 
@@ -93,7 +93,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         .channel(`notify-${rawOrderId}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${Number(rawOrderId)}` }, (payload) => { 
             if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
-                // ✅ FIX: Only alert if the chat window is actually closed!
+                // Only alert if the chat window is actually closed!
                 if (!chatOpenRef.current) {
                     setHasUnread(true);
                 } else {
@@ -106,7 +106,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     return () => { supabase.removeChannel(channel); };
   }, [order.id, userAddress, rawOrderId]);
 
-  // ✅ FIX: Save read receipt when opening OR closing chat
+  // Save read receipt when opening OR closing chat
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
@@ -121,7 +121,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const handleAccept = async () => {
     setIsDbLoading(true);
     
-    // ✅ FIX: Build a complete payload so Supabase doesn't reject fresh Crypto orders
+    // Build a complete payload so Supabase doesn't reject fresh Crypto orders
     const payload: any = { 
         id: Number(rawOrderId), 
         seller_address: userAddress, 
@@ -139,7 +139,7 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     
     if (error) {
         console.error("Supabase Accept Error:", error);
-        alert(`Database Error: ${error.message}`); // 🚨 This will instantly pop up the exact error if it fails!
+        alert(`Database Error: ${error.message}`);
     } else {
         onUpdate();
     }
@@ -273,28 +273,58 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                 {/* BUYER CONTROLS */}
                 {!isSellerView && (
                     <>
-                        {!order.isAccepted && <button onClick={handleCancel} disabled={isBusy} className="bg-red-500 hover:bg-red-400 text-white px-4 rounded-lg text-xs font-bold">{isBusy ? <Loader2 className="animate-spin w-4 h-4"/> : "Cancel"}</button>}
-                        
-                        {order.isAccepted && !order.isShipped && (
-                            <div className="flex-[2] bg-slate-700/50 text-slate-400 py-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-slate-600/50">
-                                <Package className="w-3.5 h-3.5" /> Waiting for Shipment...
-                            </div>
+                        {!order.isAccepted && (
+                            <button onClick={handleCancel} disabled={isBusy} className="bg-red-500 hover:bg-red-400 text-white px-4 rounded-lg text-xs font-bold flex items-center justify-center">
+                                {isBusy ? <Loader2 className="animate-spin w-4 h-4"/> : "Cancel"}
+                            </button>
                         )}
-
-                        {order.isShipped && (
+                        
+                        {/* STAGE 1 - ACCEPTED (Show Split Release) */}
+                        {order.isAccepted && !order.isShipped && (
                             <div className="flex-[2] flex gap-2">
                                 {isFiat ? (
-                                    <button onClick={() => handleRelease(order.formattedLocked)} disabled={isBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3">{isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release Full Amount"}</button>
+                                    <button onClick={() => handleRelease(order.formattedLocked)} disabled={isBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3 flex items-center justify-center">
+                                        {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release Split Amount"}
+                                    </button>
                                 ) : (
                                     <>
-                                        <input type="number" placeholder="0.00" value={releaseAmount} onChange={(e) => setReleaseAmount(e.target.value)} className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none" />
-                                        <button onClick={() => handleRelease(releaseAmount || order.formattedLocked)} disabled={isBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold">{isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release"}</button>
+                                        <input 
+                                            type="number" 
+                                            placeholder="0.00" 
+                                            value={releaseAmount} 
+                                            onChange={(e) => setReleaseAmount(e.target.value)} 
+                                            className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none" 
+                                        />
+                                        <button 
+                                            onClick={() => handleRelease(releaseAmount)} 
+                                            disabled={isBusy || !releaseAmount} 
+                                            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center"
+                                        >
+                                            {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Split Release"}
+                                        </button>
                                     </>
                                 )}
                             </div>
                         )}
 
-                        {order.isAccepted && <button onClick={handleDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg"><AlertTriangle className="w-4 h-4" /></button>}
+                        {/* STAGE 2 - SHIPPED (Show Full Release) */}
+                        {order.isShipped && (
+                            <div className="flex-[2] flex gap-2">
+                                <button 
+                                    onClick={() => handleRelease(order.formattedLocked)} 
+                                    disabled={isBusy} 
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3 flex items-center justify-center"
+                                >
+                                    {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto"/> : "Release Full Amount"}
+                                </button>
+                            </div>
+                        )}
+
+                        {order.isAccepted && (
+                            <button onClick={handleDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg flex items-center justify-center">
+                                <AlertTriangle className="w-4 h-4" />
+                            </button>
+                        )}
                     </>
                 )}
 

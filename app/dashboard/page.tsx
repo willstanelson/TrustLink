@@ -160,10 +160,16 @@ function MainDashboard() {
   const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  useEffect(() => { if (notification) { const t = setTimeout(() => setNotification(null), 4000); return () => clearTimeout(t); } }, [notification]);
+  useEffect(() => { 
+    if (notification) { 
+      const t = setTimeout(() => setNotification(null), 4000); 
+      return () => clearTimeout(t); 
+    } 
+  }, [notification]);
+
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // ✅ FIX: VERIFY PAYMENT ON RETURN INSTEAD OF BLIND TRUST
+  // VERIFY PAYMENT ON RETURN INSTEAD OF BLIND TRUST
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
@@ -182,10 +188,11 @@ function MainDashboard() {
                 showToast("Payment was cancelled or failed.", "error");
             }
             fetchDbOrders(); 
-            // ✅ FIX: Stay on the dashboard!
+            // Stay on the dashboard!
             router.replace('/dashboard'); 
         });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
   useEffect(() => {
@@ -223,9 +230,10 @@ function MainDashboard() {
   useEffect(() => {
     if (accountNumber.length === 10 && bankCode) resolveBankAccount(accountNumber, bankCode);
     else { setAccountName(''); setResolveError(''); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountNumber, bankCode]);
 
-  // ✅ FIX: Prioritize the active Wagmi transaction wallet over the initial login wallet
+  // Prioritize the active Wagmi transaction wallet over the initial login wallet
   const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
   const isWrongNetwork = authenticated && chain && chain.id !== sepolia.id;
@@ -238,6 +246,7 @@ function MainDashboard() {
       setDbOrders(map);
     }
   };
+  
   useEffect(() => { fetchDbOrders(); }, []);
 
   const { data: ethBalance, refetch: refetchEth } = useBalance({ address: userAddress as `0x${string}` });
@@ -246,7 +255,8 @@ function MainDashboard() {
     args: userAddress ? [userAddress as `0x${string}`, CONTRACT_ADDRESS] : undefined,
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
-  // ✅ FIX: Allow the app to refetch the total count after a new order
+  
+  // Allow the app to refetch the total count after a new order
   const { data: totalEscrows, refetch: refetchTotalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
@@ -263,7 +273,7 @@ function MainDashboard() {
     query: { refetchInterval: 5000 }
   });
 
-  // ✅ FIX: Force the app to recount the total escrows before refreshing the list
+  // Force the app to recount the total escrows before refreshing the list
   const handleRefresh = () => { 
       refetchTotalEscrows(); 
       refetchOrders(); 
@@ -272,13 +282,31 @@ function MainDashboard() {
       fetchDbOrders(); 
   };
 
+  // ✅ FIX 2: Single-Click Approve & Deposit Automation
   useEffect(() => {
     if (isSuccess) {
-        showToast(txType === 'approve' ? "Approved! Now click Deposit." : "Escrow Created Successfully!", 'success');
-        if (txType === 'deposit') { setSellerAddress(''); setAmountInput(''); }
-        setTxType(null); 
-        handleRefresh();
+        if (txType === 'approve') {
+            showToast("Approved! Automatically securing your escrow...", 'success');
+            setTxType('deposit'); 
+            
+            // Auto-fire the deposit without making the user click anything!
+            const amountWei = parseUnits(amountInput, selectedAsset.decimals);
+            writeContract({ 
+                address: CONTRACT_ADDRESS, 
+                abi: CONTRACT_ABI, 
+                functionName: 'createEscrow', 
+                args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], 
+                value: BigInt(0) 
+            });
+        } else if (txType === 'deposit') {
+            showToast("Escrow Created Successfully!", 'success');
+            setSellerAddress(''); 
+            setAmountInput('');
+            setTxType(null); 
+            handleRefresh();
+        }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
 
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
@@ -323,7 +351,7 @@ function MainDashboard() {
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            timestamp: Number(id) // ✅ FIX: Crypto orders now sort perfectly by their exact Blockchain ID 
+            timestamp: Number(id) // Crypto orders now sort perfectly by their exact Blockchain ID 
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -338,7 +366,7 @@ function MainDashboard() {
 
         const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
         
-        // ✅ FIX: Completely hide unpaid or canceled orders from the dashboard
+        // Completely hide unpaid or canceled orders from the dashboard
         if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
         const myEmail = user?.email?.address?.toLowerCase();
@@ -399,7 +427,7 @@ function MainDashboard() {
         if (currentAllowance < amountWei) {
           setTxType('approve'); 
           writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
-          showToast("Approval Request Sent...", 'info');
+          showToast("Approving USDC... Please wait.", 'info'); // ✅ FIX: Updated toast message
           return;
         }
       }
@@ -479,7 +507,14 @@ function MainDashboard() {
             <div className="flex items-center gap-4">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
                 <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 hover:bg-white/5 px-3 py-1.5 rounded-lg border border-transparent hover:border-emerald-500/30">
-                    <span className="font-mono text-sm font-bold">{ethBalance?.formatted ? Number(ethBalance.formatted).toFixed(4) : "0.00"} ETH</span>
+                    
+                    {/* ✅ FIX 1: Display username/email prefix instead of ETH balance */}
+                    <span className="font-mono text-sm font-bold truncate max-w-[120px]">
+                        {user?.email?.address 
+                            ? user.email.address.split('@')[0] 
+                            : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Profile")}
+                    </span>
+                    
                     <Wallet className="w-4 h-4 text-slate-400" />
                 </button>
                 <button onClick={logout} className="bg-white/5 p-2 rounded-full"><LogOut className="w-4 h-4" /></button>
