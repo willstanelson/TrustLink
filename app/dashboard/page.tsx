@@ -270,7 +270,7 @@ function MainDashboard() {
     contracts: indexesToFetch.map((id) => ({ 
         abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrows', args: [BigInt(id)] 
     })),
-    query: { refetchInterval: 5000 }
+    query: { refetchInterval: 30000 }
   });
 
   // Force the app to recount the total escrows before refreshing the list
