@@ -288,11 +288,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       </div>
 
       {/* COUNTERPARTY & TRUST BADGE */}
-      <div className="flex items-center gap-2 mb-6 text-xs text-slate-400 bg-slate-950/30 p-2 rounded-lg">
+      <div className="flex items-center gap-2 mb-6 text-xs text-slate-400">
          <span>{isSellerView ? 'Buyer:' : 'Seller:'}</span>
-         <span className="font-mono text-emerald-400">
-            {peerAddress && peerAddress.length > 10 ? `${peerAddress.slice(0,6)}...${peerAddress.slice(-4)}` : peerAddress}
-         </span>
          <TrustBadge address={peerAddress} />
       </div>
 

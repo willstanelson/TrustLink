@@ -11,19 +11,21 @@ export async function POST(req: Request) {
             
             const { data } = await supabase.from('profiles').select('*').eq('id', id).single();
             
-            await supabase.from('profiles').upsert({
-                id: id,
-                total_orders: (data?.total_orders || 0) + 1,
-                successful_orders: (data?.successful_orders || 0) + 1
-            }, { onConflict: 'id' });
+            if (data) {
+                // Safely update ONLY the math, leave the name/avatar alone
+                await supabase.from('profiles').update({
+                    total_orders: (data.total_orders || 0) + 1,
+                    successful_orders: (data.successful_orders || 0) + 1
+                }).eq('id', id);
+            } else {
+                // If they have no profile yet, create a fresh one
+                await supabase.from('profiles').insert({ id: id, total_orders: 1, successful_orders: 1 });
+            }
         };
 
-        // Update both wallets simultaneously
         await Promise.all([updateStats(buyer), updateStats(seller)]);
-        
         return NextResponse.json({ status: true, message: "Reputation updated" });
     } catch (error: any) {
-        console.error("Reputation API Error:", error);
         return NextResponse.json({ status: false, message: error.message }, { status: 500 });
     }
 }

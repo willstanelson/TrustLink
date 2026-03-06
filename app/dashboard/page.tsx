@@ -514,10 +514,11 @@ function MainDashboard() {
             <div className="flex items-center gap-3">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
                 
-                {/* NEW: Link to Profile Page */}
-                <button onClick={() => router.push('/profile')} className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm font-bold transition-all">
+               {/* NEW: Link to Profile Page - FIXED FOR MOBILE */}
+                <button onClick={() => router.push('/profile')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all">
                     <User className="w-4 h-4 text-emerald-400" />
-                    Profile
+                    <span className="hidden sm:inline">Trust Profile</span>
+                    <span className="sm:hidden">Profile</span>
                 </button>
 
                 <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg transition-all">

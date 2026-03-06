@@ -187,25 +187,26 @@ export async function POST(req: Request) {
         if (updateError) throw new Error(updateError.message);
 
         // --- NEW: REPUTATION ENGINE UPDATE ---
-        // If the order is fully paid, reward both the buyer and seller with a successful trade!
         if (newStatus === 'success') {
             const updateProfile = async (email: string) => {
                 if (!email) return;
                 const id = email.toLowerCase();
                 const { data } = await supabase.from('profiles').select('*').eq('id', id).single();
                 
-                await supabase.from('profiles').upsert({
-                    id: id,
-                    total_orders: (data?.total_orders || 0) + 1,
-                    successful_orders: (data?.successful_orders || 0) + 1
-                }, { onConflict: 'id' });
+                if (data) {
+                    await supabase.from('profiles').update({
+                        total_orders: (data.total_orders || 0) + 1,
+                        successful_orders: (data.successful_orders || 0) + 1
+                    }).eq('id', id);
+                } else {
+                    await supabase.from('profiles').insert({ id: id, total_orders: 1, successful_orders: 1 });
+                }
             };
-            
             await updateProfile(order.buyer_email);
             await updateProfile(order.seller_email);
         }
         // -------------------------------------
-
+        
         return NextResponse.json({ 
             status: true, 
             message: `Successfully released ₦${payoutAmount.toLocaleString()}. TrustLink collected a ₦${trustLinkFee.toLocaleString()} fee!` 
