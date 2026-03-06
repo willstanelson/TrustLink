@@ -1,5 +1,5 @@
 // ✅ BEST PRACTICE: Force the type at the source
-export const CONTRACT_ADDRESS = "0x41D1F8e036DCE1c193B219cCB12526922F7f77D0" as `0x${string}`;
+export const CONTRACT_ADDRESS = "0xCA0Dc428795A72f6A9131cbeAD58C1E6340cA8b2" as `0x${string}`;
 
 export const CONTRACT_ABI = [
   {
