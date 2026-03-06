@@ -45,8 +45,25 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  
+  // Track what action the user just took so we only boost stats on releases
+  const actionRef = useRef('');
 
-  if (isSuccess) { setTimeout(onUpdate, 2000); }
+  useEffect(() => {
+    if (isSuccess) {
+        if (actionRef.current === 'release' && order.type !== 'FIAT') {
+            // Ping our new API to boost the Trust Scores!
+            fetch('/api/profile/increment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ buyer: order.buyer, seller: order.seller })
+            });
+            actionRef.current = ''; 
+        }
+        setTimeout(onUpdate, 2000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
 
   const peerAddress = isSellerView ? order.buyer : order.seller;
   const isBusy = isPending || isConfirming || isDbLoading;
@@ -176,13 +193,13 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const handleRelease = async (amountStr: string) => {
     if (!amountStr) return;
     
-    // ✅ FIX: Strip commas out of formatted numbers (e.g. "3,000" -> "3000") so JS can do the math!
+    // Strip commas out of formatted numbers (e.g. "3,000" -> "3000") so JS can do the math!
     const cleanAmountStr = String(amountStr).replace(/,/g, '');
     
     if (isFiat) {
         setIsDbLoading(true);
         try {
-            const releaseNum = Number(cleanAmountStr); // Now perfectly reads 3000
+            const releaseNum = Number(cleanAmountStr); 
 
             const response = await fetch('/api/paystack/release', {
                 method: 'POST',
@@ -206,10 +223,11 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             alert("Network error processing release.");
         } finally {
             setIsDbLoading(false);
-            setReleaseAmount(''); // Clear the input box
+            setReleaseAmount(''); 
         }
     } else {
         const decimals = order.token_symbol === 'ETH' ? 18 : 6;
+        actionRef.current = 'release'; // <-- ✅ Action Tracking logic properly hooked in
         writeContract({ 
             address: CONTRACT_ADDRESS, 
             abi: CONTRACT_ABI, 

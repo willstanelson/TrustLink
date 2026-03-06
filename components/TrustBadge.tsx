@@ -1,65 +1,79 @@
-import { useEffect, useState } from 'react';
-import { ShieldAlert, ShieldCheck, Award } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
+import { useState, useEffect } from 'react';
+import { ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function TrustBadge({ address }: { address: string }) {
-  const [tradeCount, setTradeCount] = useState<number | null>(null);
+    const [score, setScore] = useState<number | null>(null);
+    const [totalTrades, setTotalTrades] = useState(0);
+    const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // We don't want to query if the address is empty or missing
-    if (!address || address === '0x0000000000000000000000000000000000000000') {
-        setTradeCount(0);
-        return;
+    useEffect(() => {
+        if (!address) return;
+
+        const fetchTrustScore = async () => {
+            setIsLoading(true);
+            try {
+                // Fetch the user's profile using their wallet address or email
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('total_orders, successful_orders')
+                    .eq('id', address.toLowerCase())
+                    .single();
+
+                if (error || !data) {
+                    // No profile found = No trades yet
+                    setScore(null);
+                    setTotalTrades(0);
+                } else {
+                    const total = Number(data.total_orders) || 0;
+                    const success = Number(data.successful_orders) || 0;
+                    
+                    setTotalTrades(total);
+                    if (total > 0) {
+                        setScore(Math.round((success / total) * 100));
+                    } else {
+                        setScore(null);
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching trust score", err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchTrustScore();
+    }, [address]);
+
+    if (isLoading) {
+        return <Loader2 className="w-3 h-3 text-slate-500 animate-spin" />;
     }
 
-    const fetchReputation = async () => {
-      // 1. Ask Supabase to count every completed order for this specific seller
-      // We check BOTH seller_address (Crypto) and seller_email (Fiat)
-      const { count, error } = await supabase
-        .from('escrow_orders')
-        .select('*', { count: 'exact', head: true })
-        .or(`seller_address.eq.${address},seller_email.eq.${address}`)
-        .in('status', ['completed', 'success']); // The two statuses that mean "Funds Released"
+    if (totalTrades === 0 || score === null) {
+        return (
+            <div className="flex items-center gap-1 bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full border border-slate-700 text-[9px] font-bold">
+                <AlertCircle className="w-2.5 h-2.5" />
+                NEW USER
+            </div>
+        );
+    }
 
-      if (!error && count !== null) {
-        setTradeCount(count);
-      } else {
-        setTradeCount(0);
-      }
-    };
+    // Determine colors based on how good their score is
+    let badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+    let iconColor = "text-emerald-400";
 
-    fetchReputation();
-  }, [address]);
+    if (score < 80 && score >= 50) {
+        badgeColor = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+        iconColor = "text-yellow-400";
+    } else if (score < 50) {
+        badgeColor = "bg-red-500/20 text-red-400 border-red-500/30";
+        iconColor = "text-red-400";
+    }
 
-  // Loading state (sleek pulsing effect while checking DB)
-  if (tradeCount === null) {
-    return <span className="animate-pulse bg-slate-800 h-5 w-20 rounded border border-slate-700"></span>;
-  }
-
-  // 🏆 GOLD TIER (10+ Trades)
-  if (tradeCount >= 10) {
     return (
-      <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide">
-        <Award className="w-3 h-3" /> PRO ({tradeCount} TRADES)
-      </div>
+        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[9px] font-bold transition-all cursor-help ${badgeColor}`} title={`${totalTrades} Total Trades`}>
+            <ShieldCheck className={`w-2.5 h-2.5 ${iconColor}`} />
+            TRUST: {score}%
+        </div>
     );
-  } 
-  
-  // 🛡️ BLUE TIER (1 to 9 Trades)
-  else if (tradeCount > 0) {
-    return (
-      <div className="flex items-center gap-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide">
-        <ShieldCheck className="w-3 h-3" /> VERIFIED ({tradeCount})
-      </div>
-    );
-  } 
-  
-  // ⚠️ GRAY TIER (0 Trades)
-  else {
-    return (
-      <div className="flex items-center gap-1 bg-slate-800 text-slate-400 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border border-slate-700">
-        <ShieldAlert className="w-3 h-3" /> NEW SELLER
-      </div>
-    );
-  }
 }

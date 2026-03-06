@@ -15,7 +15,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, 
-  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck
+  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, User
 } from 'lucide-react';
 
 // --- CONSTANTS ---
@@ -511,22 +511,26 @@ function MainDashboard() {
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold">TrustLink</span></div>
         {authenticated ? (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
-                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 hover:bg-white/5 px-3 py-1.5 rounded-lg border border-transparent hover:border-emerald-500/30">
-                    
-                    {/* ✅ FIX 1: Display username/email prefix instead of ETH balance */}
+                
+                {/* NEW: Link to Profile Page */}
+                <button onClick={() => router.push('/profile')} className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm font-bold transition-all">
+                    <User className="w-4 h-4 text-emerald-400" />
+                    Profile
+                </button>
+
+                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg transition-all">
                     <span className="font-mono text-sm font-bold truncate max-w-[120px]">
                         {user?.email?.address 
                             ? user.email.address.split('@')[0] 
-                            : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Profile")}
+                            : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Wallet")}
                     </span>
-                    
                     <Wallet className="w-4 h-4 text-slate-400" />
                 </button>
-                <button onClick={logout} className="bg-white/5 p-2 rounded-full"><LogOut className="w-4 h-4" /></button>
+                <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-lg border border-red-500/20 transition-all"><LogOut className="w-4 h-4" /></button>
             </div>
-        ) : <button onClick={login} className="bg-white/10 hover:bg-white/20 px-5 py-2 rounded-full text-sm font-bold">Log In</button>}
+        ) : <button onClick={login} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20">Log In</button>}
       </nav>
 
       <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
