@@ -5,9 +5,9 @@ import { usePrivy } from '@privy-io/react-auth';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { 
-    User, Loader2, Save, Activity, Search, 
+    Loader2, Save, Activity, Search, 
     Edit3, LayoutDashboard, Award, Wallet, LogOut,
-    Plus, Send, Download, Mail, Link as LinkIcon, Check
+    Plus, Send, Download, Mail
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -18,7 +18,6 @@ export default function ProfilePage() {
     // Profile States
     const [displayName, setDisplayName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState('');
-    const [bio, setBio] = useState('');
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     
     const [isSaving, setIsSaving] = useState(false);
@@ -49,7 +48,6 @@ export default function ProfilePage() {
         if (data) {
             setDisplayName(data.display_name || '');
             setAvatarUrl(data.avatar_url || '');
-            setBio(data.bio || ''); // Note: You'll need to add a 'bio' column to Supabase!
         }
     };
 
@@ -59,8 +57,7 @@ export default function ProfilePage() {
         const { error } = await supabase.from('profiles').upsert({
             id: userId,
             display_name: displayName,
-            avatar_url: avatarUrl,
-            bio: bio
+            avatar_url: avatarUrl
         }, { onConflict: 'id' });
 
         setIsSaving(false);
@@ -175,11 +172,6 @@ export default function ProfilePage() {
                                             <div className="relative">
                                                 <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Add username..." maxLength={30} className="w-full bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm" />
                                                 <span className="absolute right-4 top-3 text-xs text-slate-500">{displayName.length}/30</span>
-                                            </div>
-
-                                            <div className="relative">
-                                                <textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Add description..." maxLength={200} className="w-full bg-[#0f172a] border border-emerald-500/50 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm h-24 resize-none" />
-                                                <span className="absolute right-4 bottom-3 text-xs text-slate-500">{bio.length}/200</span>
                                             </div>
                                         </div>
                                     </section>
