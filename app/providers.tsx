@@ -33,6 +33,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           accentColor: '#10b981', // TrustLink Emerald
           logo: 'https://trust-link-sooty.vercel.app/favicon.ico' // Optional
         },
+        // 🔥 THIS IS THE TICKET TO YOUR INCENTIVES!
+    walletConnectCloudProjectId: '836bc2231c157ce81b1030811a1512d5',
         // ✅ THIS IS THE MAGIC LINE: It creates the embedded wallet for Gmail users!
         embeddedWallets: {
           ethereum: {
