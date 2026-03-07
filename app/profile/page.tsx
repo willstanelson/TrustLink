@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { 
     Loader2, Save, Activity, Search, 
     Edit3, LayoutDashboard, Award, Wallet, LogOut,
-    Plus, Send, Download, Mail
+    Plus, Send, Download, Mail, MessageCircle
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -18,7 +18,12 @@ export default function ProfilePage() {
     // Profile States
     const [displayName, setDisplayName] = useState('');
     const [avatarUrl, setAvatarUrl] = useState('');
-    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    
+    // New Social & Notification States
+    const [whatsapp, setWhatsapp] = useState('');
+    const [gmail, setGmail] = useState('');
+    const [emailNotif, setEmailNotif] = useState(false);
+    const [waNotif, setWaNotif] = useState(false);
     
     const [isSaving, setIsSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false); 
@@ -48,6 +53,10 @@ export default function ProfilePage() {
         if (data) {
             setDisplayName(data.display_name || '');
             setAvatarUrl(data.avatar_url || '');
+            setWhatsapp(data.whatsapp || '');
+            setGmail(data.gmail || '');
+            setEmailNotif(data.email_notifications || false);
+            setWaNotif(data.whatsapp_notifications || false);
         }
     };
 
@@ -57,7 +66,11 @@ export default function ProfilePage() {
         const { error } = await supabase.from('profiles').upsert({
             id: userId,
             display_name: displayName,
-            avatar_url: avatarUrl
+            avatar_url: avatarUrl,
+            whatsapp: whatsapp,
+            gmail: gmail,
+            email_notifications: emailNotif,
+            whatsapp_notifications: waNotif
         }, { onConflict: 'id' });
 
         setIsSaving(false);
@@ -176,35 +189,63 @@ export default function ProfilePage() {
                                         </div>
                                     </section>
 
-                                    {/* Email Settings */}
+                                    {/* Notification Settings */}
                                     <section>
-                                        <h4 className="text-sm font-bold mb-3">Email for notifications</h4>
-                                        <div className="flex items-center bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-400">
-                                            <Mail className="w-4 h-4 mr-2 opacity-50"/>
-                                            {user?.email?.address ? `${user.email.address} (Privy)` : "No email connected"}
-                                        </div>
-                                        <div className="flex items-center justify-between mt-4 px-1">
-                                            <span className="text-sm text-slate-300">Receive notifications and updates</span>
-                                            <button 
-                                                onClick={() => setNotificationsEnabled(!notificationsEnabled)}
-                                                className={`w-11 h-6 rounded-full transition-colors relative ${notificationsEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                                            >
-                                                <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${notificationsEnabled ? 'translate-x-6' : 'translate-x-1'}`}></div>
-                                            </button>
+                                        <h4 className="text-sm font-bold mb-3">Notification Preferences</h4>
+                                        <div className="space-y-3">
+                                            {/* Email Toggle */}
+                                            <div className="flex items-center justify-between bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3">
+                                                <div className="flex items-center gap-3 text-sm text-slate-300">
+                                                    <Mail className="w-5 h-5 text-emerald-500"/>
+                                                    <div>
+                                                        <p className="font-bold text-white">Email Alerts</p>
+                                                        <p className="text-xs text-slate-500">{user?.email?.address || 'Via connected email'}</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => setEmailNotif(!emailNotif)} className={`w-11 h-6 rounded-full transition-colors relative ${emailNotif ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+                                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${emailNotif ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                                                </button>
+                                            </div>
+
+                                            {/* WhatsApp Toggle */}
+                                            <div className="flex items-center justify-between bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3">
+                                                <div className="flex items-center gap-3 text-sm text-slate-300">
+                                                    <MessageCircle className="w-5 h-5 text-emerald-500"/>
+                                                    <div>
+                                                        <p className="font-bold text-white">WhatsApp Alerts</p>
+                                                        <p className="text-xs text-slate-500">Instant messages for escrows</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => setWaNotif(!waNotif)} className={`w-11 h-6 rounded-full transition-colors relative ${waNotif ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+                                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${waNotif ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                                                </button>
+                                            </div>
                                         </div>
                                     </section>
 
                                     {/* Social Links */}
                                     <section>
-                                        <h4 className="text-sm font-bold mb-3">Social links</h4>
+                                        <h4 className="text-sm font-bold mb-3">Linked Accounts</h4>
                                         <div className="space-y-3">
-                                            <div className="flex items-center justify-between bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3">
-                                                <div className="flex items-center gap-2 text-sm text-slate-300"><span className="font-bold text-white">X</span> @TrustLinkUser</div>
-                                                <button className="text-xs border border-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">Disconnect</button>
+                                            {/* WhatsApp Input */}
+                                            <div className="flex items-center bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-2 focus-within:border-emerald-500 transition-colors">
+                                                <MessageCircle className="w-4 h-4 text-slate-500 mr-3" />
+                                                <input 
+                                                    value={whatsapp} 
+                                                    onChange={e => setWhatsapp(e.target.value)} 
+                                                    placeholder="WhatsApp Number (e.g. +234...)" 
+                                                    className="bg-transparent border-none outline-none text-sm w-full text-slate-300 py-2" 
+                                                />
                                             </div>
-                                            <div className="flex items-center justify-between bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-3">
-                                                <div className="flex items-center gap-2 text-sm text-slate-500"><span className="font-bold text-white">Discord</span> Not connected</div>
-                                                <button className="text-xs bg-white text-black font-bold px-3 py-1.5 rounded-lg hover:bg-slate-200 transition-colors">Connect</button>
+                                            {/* Gmail Input */}
+                                            <div className="flex items-center bg-[#0f172a] border border-slate-700 rounded-xl px-4 py-2 focus-within:border-emerald-500 transition-colors">
+                                                <Mail className="w-4 h-4 text-slate-500 mr-3" />
+                                                <input 
+                                                    value={gmail} 
+                                                    onChange={e => setGmail(e.target.value)} 
+                                                    placeholder="Gmail Address" 
+                                                    className="bg-transparent border-none outline-none text-sm w-full text-slate-300 py-2" 
+                                                />
                                             </div>
                                         </div>
                                     </section>
