@@ -1,16 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, use } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { Loader2, ShieldCheck, CheckCircle2, XCircle, ArrowLeft, ArrowRight, AlertTriangle } from 'lucide-react';
 
-export default function VerificationCard({ params }: { params: { id: string } }) {
+export default function VerificationCard({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
+    
+    // ✅ NEXT.JS 15+ FIX: Unwrap the params Promise using React.use()
+    const resolvedParams = use(params); 
+    
     const [stats, setStats] = useState({ total: 0, successful: 0, lost: 0, score: 0 });
     const [isLoading, setIsLoading] = useState(true);
 
-    const decodedId = decodeURIComponent(params.id).toLowerCase();
+    const decodedId = decodeURIComponent(resolvedParams.id).toLowerCase();
     const isEmail = decodedId.includes('@');
 
     useEffect(() => {
