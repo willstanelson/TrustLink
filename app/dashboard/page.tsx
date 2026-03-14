@@ -15,7 +15,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, 
-  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, User
+  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search
 } from 'lucide-react';
 
 // --- CONSTANTS ---
@@ -156,6 +156,7 @@ function MainDashboard() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
@@ -168,6 +169,13 @@ function MainDashboard() {
   }, [notification]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
+
+  const handleSearch = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (searchQuery) {
+          router.push(`/user/${encodeURIComponent(searchQuery)}`);
+      }
+  };
 
   // VERIFY PAYMENT ON RETURN INSTEAD OF BLIND TRUST
   useEffect(() => {
@@ -191,6 +199,26 @@ function MainDashboard() {
             // Stay on the dashboard!
             router.replace('/dashboard'); 
         });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // MAGIC PRE-FILL: Catch the seller details from the profile page search
+  useEffect(() => {
+    const prefillSeller = searchParams.get('seller');
+    const prefillMode = searchParams.get('autoMode');
+
+    if (prefillSeller && prefillMode) {
+        if (prefillMode === 'fiat') {
+            setMode('fiat');
+            setSellerEmail(decodeURIComponent(prefillSeller));
+        } else if (prefillMode === 'crypto') {
+            setMode('crypto');
+            setSellerAddress(prefillSeller);
+        }
+        
+        // Wipe the URL clean so it looks like magic
+        router.replace('/dashboard');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -508,30 +536,51 @@ function MainDashboard() {
         </div>
       )}
 
-      <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold">TrustLink</span></div>
+      <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full gap-4">
+        {/* Logo */}
+        <div className="flex items-center gap-2 min-w-max">
+            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3">
+                <Lock className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-xl font-bold hidden sm:block">TrustLink</span>
+        </div>
+
+        {/* The Simple Search Engine */}
+        {authenticated && (
+            <form onSubmit={handleSearch} className="flex-1 max-w-lg relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" />
+                </div>
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="block w-full pl-10 pr-3 py-2.5 border border-slate-700 rounded-2xl leading-5 bg-slate-900/50 text-slate-300 placeholder-slate-500 focus:outline-none focus:bg-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 sm:text-sm transition-all shadow-inner"
+                    placeholder="Search seller by email or wallet..."
+                />
+            </form>
+        )}
+
+        {/* Simple Identity Dropdown */}
         {authenticated ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-max">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
                 
-               {/* NEW: Link to Profile Page - FIXED FOR MOBILE */}
-                <button onClick={() => router.push('/profile')} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all">
-                    <User className="w-4 h-4 text-emerald-400" />
-                    <span className="hidden sm:inline">Trust Profile</span>
-                    <span className="sm:hidden">Profile</span>
-                </button>
-
-                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg transition-all">
-                    <span className="font-mono text-sm font-bold truncate max-w-[120px]">
+                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg">
+                    <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">
                         {user?.email?.address 
                             ? user.email.address.split('@')[0] 
                             : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Wallet")}
                     </span>
-                    <Wallet className="w-4 h-4 text-slate-400" />
+                    <Wallet className="w-4 h-4 text-emerald-400" />
                 </button>
-                <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-lg border border-red-500/20 transition-all"><LogOut className="w-4 h-4" /></button>
+                <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-2xl border border-red-500/20 transition-all">
+                    <LogOut className="w-4 h-4" />
+                </button>
             </div>
-        ) : <button onClick={login} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20">Log In</button>}
+        ) : (
+            <button onClick={login} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-2xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20">Log In</button>
+        )}
       </nav>
 
       <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
