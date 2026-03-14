@@ -23,12 +23,16 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
             if (data) {
                 const total = Number(data.total_orders) || 0;
                 const success = Number(data.successful_orders) || 0;
-                setStats({ total, successful: success, lost: Number(data.disputes_lost) || 0, score: total > 0 ? Math.round((success / total) * 100) : 0 });
+                const scams = Number(data.severe_strikes) || 0;
+                
+                // 🔥 THE REPUTATION NUKE
+                let score = total > 0 ? Math.round((success / total) * 100) : 0;
+                if (scams > 0) score = 0;
+
+                setStats({ total, successful: success, lost: Number(data.disputes_lost) || 0, score });
             }
             setIsLoading(false);
         };
-        fetchReputation();
-    }, [decodedId]);
 
     if (isLoading) return <div className="min-h-screen bg-[#0f172a] flex justify-center items-center"><Loader2 className="animate-spin text-emerald-500 w-8 h-8"/></div>;
 
