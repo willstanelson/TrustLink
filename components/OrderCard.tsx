@@ -41,7 +41,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   const [hasUnread, setHasUnread] = useState(false); 
   const [isDbLoading, setIsDbLoading] = useState(false);
 
-  // 🔥 NEW: Modal States for Split Release Protection
   const [showSplitWarning, setShowSplitWarning] = useState(false);
   const [pendingReleaseAmount, setPendingReleaseAmount] = useState('');
   
@@ -52,26 +51,9 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   
   const actionRef = useRef('');
 
-  useEffect(() => {
-    if (isSuccess) {
-        if (actionRef.current === 'release' && order.type !== 'FIAT') {
-            fetch('/api/profile/increment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ buyer: order.buyer, seller: order.seller })
-            });
-            actionRef.current = ''; 
-        }
-        setTimeout(onUpdate, 2000);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess]);
-
-  const peerAddress = isSellerView ? order.buyer : order.seller;
-  const isBusy = isPending || isConfirming || isDbLoading;
-
   const isFiat = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
+  const peerAddress = isSellerView ? order.buyer : order.seller;
 
   const displayId = useMemo(() => {
       const numId = Number(rawOrderId);
@@ -79,6 +61,39 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       const scrambledHex = (numId * 83911).toString(16).toUpperCase();
       return isFiat ? `NGN-${scrambledHex}` : `ORD-${scrambledHex}`;
   }, [rawOrderId, isFiat, order.id]);
+
+  // 🔥 NEW: Helper to send emails quietly in the background
+  const sendNotification = async (to: string, subject: string, message: string) => {
+      if (!to || !to.includes('@')) return; // Silently skip if it's a crypto wallet without an email
+      try {
+          await fetch('/api/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to, subject, message })
+          });
+      } catch (err) {
+          console.error("Failed to send email notification", err);
+      }
+  };
+
+  useEffect(() => {
+    if (isSuccess) {
+        if (actionRef.current === 'release' && !isFiat) {
+            fetch('/api/profile/increment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ buyer: order.buyer, seller: order.seller })
+            });
+            // Notify seller of crypto release
+            sendNotification(order.seller, 'Funds Released!', `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`);
+            actionRef.current = ''; 
+        }
+        setTimeout(onUpdate, 2000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
+  const isBusy = isPending || isConfirming || isDbLoading;
 
   useEffect(() => {
       chatOpenRef.current = showChat;
@@ -147,7 +162,13 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     }
     const { error } = await supabase.from('escrow_orders').upsert(payload);
     setIsDbLoading(false);
-    if (error) alert(`Database Error: ${error.message}`); else onUpdate();
+    
+    if (error) alert(`Database Error: ${error.message}`); 
+    else {
+        // Notify Buyer
+        sendNotification(order.buyer, 'Order Accepted!', `The seller has accepted your order (${displayId}). They are preparing your item/service.`);
+        onUpdate();
+    }
   };
 
   const handleMarkShipped = async () => {
@@ -160,29 +181,31 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     }
     const { error } = await supabase.from('escrow_orders').upsert(payload);
     setIsDbLoading(false);
-    if (error) alert(`Database Error: ${error.message}`); else onUpdate();
+    
+    if (error) alert(`Database Error: ${error.message}`); 
+    else {
+        // Notify Buyer
+        sendNotification(order.buyer, 'Order Shipped!', `The seller has marked your order (${displayId}) as shipped/delivered. Please verify and release the funds when you are satisfied.`);
+        onUpdate();
+    }
   };
 
-  // 🔥 NEW: Interceptor Function
   const handleReleaseClick = (amountStr: string) => {
       if (!amountStr) return;
-      
       const cleanAmountStr = String(amountStr).replace(/,/g, '');
       const cleanLockedStr = String(order.formattedLocked).replace(/,/g, '');
 
       const releaseNum = Number(cleanAmountStr);
       const lockedNum = Number(cleanLockedStr);
 
-      // Check if they are trying to release LESS than the total locked amount
       if (releaseNum > 0 && releaseNum < lockedNum) {
           setPendingReleaseAmount(cleanAmountStr);
-          setShowSplitWarning(true); // Freeze and show warning modal
+          setShowSplitWarning(true); 
       } else {
-          executeRelease(cleanAmountStr); // Full release, proceed normally
+          executeRelease(cleanAmountStr); 
       }
   };
 
-  // The actual execution logic (moved from handleRelease)
   const executeRelease = async (cleanAmountStr: string) => {
     if (isFiat) {
         setIsDbLoading(true);
@@ -197,6 +220,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             const data = await response.json();
             if (data.status) {
                 alert(data.message); 
+                // Notify Seller
+                sendNotification(order.seller, 'Funds Released!', `Great news! The buyer has released ${releaseNum} NGN for order ${displayId}. It is currently processing to your bank account.`);
                 onUpdate();
             } else alert(`Release Failed: ${data.message}`);
         } catch (error) {
@@ -223,7 +248,11 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         setIsDbLoading(true);
         const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
-        if (!error) onUpdate();
+        if (!error) {
+            // Notify the other party
+            sendNotification(peerAddress, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
+            onUpdate();
+        }
     } else {
         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(rawOrderId)] });
     }
