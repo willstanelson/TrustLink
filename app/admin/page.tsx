@@ -194,8 +194,8 @@ export default function AdminPage() {
                             </div>
                             <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                                 <div><p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Locked Value</p><p className="text-2xl font-black text-white">{order.paystack_ref ? '₦' : ''}{Number(order.amount).toLocaleString()}</p></div>
-                                <div><p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Buyer</p><p className="text-sm font-mono bg-slate-900 p-2 rounded-lg border border-slate-700 text-blue-400 truncate">{order.buyer_email || order.buyer_wallet_address}</p></div>
-                                <div><p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Seller</p><p className="text-sm font-mono bg-slate-900 p-2 rounded-lg border border-slate-700 text-emerald-400 truncate">{order.seller_email || order.seller_name}</p></div>
+                                <div><p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Buyer</p><p className="text-[10px] font-mono bg-slate-900 p-2 rounded-lg border border-slate-700 text-blue-400 break-all">{order.buyer_email || order.buyer_wallet_address}</p></div>
+                                <div><p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Seller</p><p className="text-[10px] font-mono bg-slate-900 p-2 rounded-lg border border-slate-700 text-emerald-400 break-all">{order.seller_email || order.seller_name}</p></div>
                                 
                                 <div className="col-span-1 lg:col-span-2 flex flex-col gap-2 justify-center">
                                     <button disabled={resolvingFiatId === order.id} onClick={() => handleResolveFiat(order, 'completed', false)} className="w-full bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white font-bold py-2 rounded-xl text-xs transition-all flex justify-center items-center gap-2">{resolvingFiatId === order.id ? <Loader2 className="w-3 h-3 animate-spin"/> : <CheckCircle className="w-3 h-3" />} Rule for Seller</button>
@@ -226,10 +226,18 @@ export default function AdminPage() {
                                 <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
                                     <td className="p-4 font-mono text-slate-300">#{order.id}</td>
                                     <td className="p-4"><div className="font-bold">{order.amount} {order.symbol}</div></td>
-                                    <td className="p-4 text-sm"><div className="flex flex-col gap-1"><span className="text-emerald-400/80 text-xs">BUY: {order.buyer.slice(0,6)}...</span><span className="text-blue-400/80 text-xs">SEL: {order.seller.slice(0,6)}...</span></div></td>
+                                    
+                                    {/* 🔥 FIXED: FULL WALLET ADDRESSES DISPLAYED HERE */}
+                                    <td className="p-4">
+                                        <div className="flex flex-col gap-1.5 font-mono">
+                                            <span className="text-emerald-400/80 text-[10px] break-all">BUY: {order.buyer}</span>
+                                            <span className="text-blue-400/80 text-[10px] break-all">SEL: {order.seller}</span>
+                                        </div>
+                                    </td>
+
                                     <td className="p-4"><span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${order.status === 'COMPLETED' ? 'bg-slate-800 text-slate-400 border border-slate-700' : order.status === 'DISPUTED' ? 'bg-red-500/10 text-red-400 border border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}`}>{order.status}</span></td>
                                     <td className="p-4 text-right flex justify-end gap-2">
-                                        {order.status === 'ACTIVE' && (<><button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-colors">Refund</button><button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-amber-900/30 hover:bg-amber-900/50 border border-amber-500/30 text-amber-400 text-xs font-bold rounded-lg transition-colors">Dispute</button></>)}
+                                        {order.status === 'ACTIVE' && (<><button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-red-400 text-xs font-bold rounded-lg transition-colors">Refund</button><button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-slate-800 hover:bg-amber-900/50 border border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 text-xs font-bold rounded-lg transition-colors">Dispute</button></>)}
                                         {order.status === 'DISPUTED' && (
                                             <>
                                                 <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE' })} className="px-3 py-1.5 bg-emerald-900/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Force Release</button>
@@ -246,6 +254,7 @@ export default function AdminPage() {
                 </table>
             </div>
         )}
+
       </main>
 
       {/* CRYPTO CONFIRMATION MODAL */}

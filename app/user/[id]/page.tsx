@@ -32,7 +32,10 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
                 setStats({ total, successful: success, lost: Number(data.disputes_lost) || 0, score });
             }
             setIsLoading(false);
-        }; fetchReputation();
+        };
+        
+        // This is what got cut off!
+        fetchReputation();
     }, [decodedId]);
 
     if (isLoading) return <div className="min-h-screen bg-[#0f172a] flex justify-center items-center"><Loader2 className="animate-spin text-emerald-500 w-8 h-8"/></div>;
