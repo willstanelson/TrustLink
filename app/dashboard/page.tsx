@@ -124,7 +124,7 @@ const BANKS = [
 // 2. MAIN DASHBOARD COMPONENT
 // ==========================================
 function MainDashboard() {
-  // ✅ Added linkEmail from usePrivy
+  // ✅ NEW: Destructured linkEmail from usePrivy
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { chain } = useAccount();
   const { switchChain } = useSwitchChain();
@@ -285,6 +285,7 @@ function MainDashboard() {
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
   
+  // Allow the app to refetch the total count after a new order
   const { data: totalEscrows, refetch: refetchTotalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
@@ -301,6 +302,7 @@ function MainDashboard() {
     query: { refetchInterval: 30000 }
   });
 
+  // Force the app to recount the total escrows before refreshing the list
   const handleRefresh = () => { 
       refetchTotalEscrows(); 
       refetchOrders(); 
@@ -315,6 +317,7 @@ function MainDashboard() {
             showToast("Approved! Automatically securing your escrow...", 'success');
             setTxType('deposit'); 
             
+            // Auto-fire the deposit without making the user click anything!
             const amountWei = parseUnits(amountInput, selectedAsset.decimals);
             writeContract({ 
                 address: CONTRACT_ADDRESS, 
@@ -338,6 +341,7 @@ function MainDashboard() {
     const buying: any[] = [];
     const selling: any[] = [];
     
+    // CRYPTO ORDERS
     if (escrowsData && userAddress) {
       escrowsData.forEach((result, index) => {
         if (result.status === 'success' && result.result) {
@@ -375,7 +379,7 @@ function MainDashboard() {
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            timestamp: Number(id) 
+            timestamp: Number(id) // Crypto orders now sort perfectly by their exact Blockchain ID 
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -384,10 +388,12 @@ function MainDashboard() {
       });
     }
 
+    // FIAT ORDERS
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
         const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
+        
         if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
         const myEmail = user?.email?.address?.toLowerCase();
@@ -398,6 +404,7 @@ function MainDashboard() {
         const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
 
         let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; 
+        
         if (['success', 'completed'].includes(currentStatus)) fiatStatusColor = "bg-slate-700 text-slate-300";
         else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
         else if (currentStatus === 'shipped') fiatStatusColor = "bg-blue-500/20 text-blue-400";
@@ -498,6 +505,9 @@ function MainDashboard() {
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
 
+  // ✅ CHECK IF USER HAS EMAIL
+  const hasEmailLinked = !!user?.email?.address;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
       <WalletModal isOpen={isWalletModalOpen} onClose={() => setIsWalletModalOpen(false)} />
@@ -528,6 +538,7 @@ function MainDashboard() {
       )}
 
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full gap-4">
+        {/* Logo */}
         <div className="flex items-center gap-2 min-w-max">
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3">
                 <Lock className="w-4 h-4 text-white" />
@@ -535,6 +546,7 @@ function MainDashboard() {
             <span className="text-xl font-bold hidden sm:block">TrustLink</span>
         </div>
 
+        {/* The Simple Search Engine */}
         {authenticated && (
             <form onSubmit={handleSearch} className="flex-1 max-w-lg relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -550,6 +562,7 @@ function MainDashboard() {
             </form>
         )}
 
+        {/* Simple Identity Dropdown */}
         {authenticated ? (
             <div className="flex items-center gap-3 min-w-max">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
@@ -597,47 +610,54 @@ function MainDashboard() {
                     </>
                 )}
 
-                {/* 🔥 THE NEW EMAIL ENFORCEMENT LOCK */}
+                {/* ✅ GATED FIAT FORM */}
                 {mode === 'fiat' && (
-                    !user?.email?.address ? (
-                        <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-8 text-center flex flex-col items-center animate-in fade-in duration-300">
-                            <div className="bg-blue-500/20 p-4 rounded-full mb-4 border border-blue-500/30">
-                                <Mail className="w-8 h-8 text-blue-400" />
+                    <>
+                    {!hasEmailLinked ? (
+                        <div className="flex flex-col items-center justify-center p-6 bg-slate-900/50 border border-slate-700 rounded-2xl text-center gap-4 mt-2">
+                            <div className="w-14 h-14 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mb-2">
+                                <Mail className="w-6 h-6 text-blue-400" />
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2">Email Required</h3>
-                            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                                Fiat transactions require an email address for Paystack receipts, security alerts, and dispute resolution. Please link an email to your wallet to continue.
+                            <h3 className="text-lg font-bold text-white">Email Verification Required</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                To use Fiat (NGN) escrows, you must link an email address to your account. This ensures you receive payment receipts and secure dispute notifications.
                             </p>
                             <button 
-                                onClick={linkEmail}
-                                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                                onClick={linkEmail} 
+                                className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl mt-2 transition-all w-full flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
                             >
-                                Link Email to Wallet
+                                Link Email Address <ArrowRight className="w-4 h-4"/>
                             </button>
                         </div>
                     ) : (
-                    <>
-                    <div className="grid grid-cols-3 gap-2">
-                        <div className="col-span-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-3 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"><span className="text-sm font-bold">NGN</span><div className={`w-4 h-4 rounded-full bg-green-600 flex items-center justify-center text-[8px] text-white`}>₦</div></div>
-                        <div className="col-span-2"><input type="number" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Amount (e.g. 5000)" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" /></div>
-                    </div>
-                    
-                    <div><label className="text-xs text-slate-400 ml-1 font-bold">YOUR EMAIL</label><input value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder="receipt@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all" /></div>
-                    
-                    <div><label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label><input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
+                        <>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="col-span-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-3 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"><span className="text-sm font-bold">NGN</span><div className={`w-4 h-4 rounded-full bg-green-600 flex items-center justify-center text-[8px] text-white`}>₦</div></div>
+                            <div className="col-span-2"><input type="number" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Amount (e.g. 5000)" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" /></div>
+                        </div>
+                        
+                        {/* ✅ LOCKED EMAIL FIELD */}
+                        <div className="opacity-70 cursor-not-allowed">
+                            <label className="text-xs text-slate-400 ml-1 font-bold flex items-center gap-1.5">YOUR EMAIL <Lock className="w-3 h-3 text-slate-500"/></label>
+                            <input readOnly value={buyerEmail} className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none text-slate-400 cursor-not-allowed" />
+                        </div>
+                        
+                        <div><label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label><input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
 
-                    <div>
-                        <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
-                        <div className="flex flex-col gap-2 mt-1">
-                            <select value={bankCode} onChange={(e) => setBankCode(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all text-sm appearance-none"><option value="">Select Bank</option>{BANKS.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}</select>
-                            <div className="relative"><input value={accountNumber} onChange={(e) => { if(e.target.value.length <= 10) setAccountNumber(e.target.value); }} placeholder="Account Number (10 digits)" type="number" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" />{isResolving && <div className="absolute right-4 top-3.5"><Loader2 className="animate-spin w-4 h-4 text-blue-500"/></div>}</div>
-                            <div className={`w-full bg-slate-800/50 border ${accountName ? 'border-emerald-500/30 bg-emerald-500/10' : resolveError ? 'border-red-500/30 bg-red-500/10' : 'border-slate-800'} rounded-lg px-4 py-3 transition-all flex items-center gap-2 min-h-[46px]`}>
-                                {accountName ? <><div className="bg-emerald-500 rounded-full p-0.5"><CheckCircle2 className="w-3 h-3 text-white"/></div><span className="text-xs font-bold text-emerald-400 tracking-wide">{accountName}</span></> : resolveError ? <><div className="bg-red-500 rounded-full p-0.5"><X className="w-3 h-3 text-white"/></div><span className="text-xs font-bold text-red-400 tracking-wide">{resolveError}</span></> : <span className="text-xs text-slate-600 italic flex items-center gap-2"><UserCheck className="w-3 h-3"/> Account Name will appear here</span>}
+                        <div>
+                            <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
+                            <div className="flex flex-col gap-2 mt-1">
+                                <select value={bankCode} onChange={(e) => setBankCode(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all text-sm appearance-none"><option value="">Select Bank</option>{BANKS.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}</select>
+                                <div className="relative"><input value={accountNumber} onChange={(e) => { if(e.target.value.length <= 10) setAccountNumber(e.target.value); }} placeholder="Account Number (10 digits)" type="number" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" />{isResolving && <div className="absolute right-4 top-3.5"><Loader2 className="animate-spin w-4 h-4 text-blue-500"/></div>}</div>
+                                <div className={`w-full bg-slate-800/50 border ${accountName ? 'border-emerald-500/30 bg-emerald-500/10' : resolveError ? 'border-red-500/30 bg-red-500/10' : 'border-slate-800'} rounded-lg px-4 py-3 transition-all flex items-center gap-2 min-h-[46px]`}>
+                                    {accountName ? <><div className="bg-emerald-500 rounded-full p-0.5"><CheckCircle2 className="w-3 h-3 text-white"/></div><span className="text-xs font-bold text-emerald-400 tracking-wide">{accountName}</span></> : resolveError ? <><div className="bg-red-500 rounded-full p-0.5"><X className="w-3 h-3 text-white"/></div><span className="text-xs font-bold text-red-400 tracking-wide">{resolveError}</span></> : <span className="text-xs text-slate-600 italic flex items-center gap-2"><UserCheck className="w-3 h-3"/> Account Name will appear here</span>}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div><label className="text-xs text-slate-400 ml-1 font-bold">DESCRIPTION</label><textarea value={fiatDescription} onChange={(e) => setFiatDescription(e.target.value)} placeholder="What are you paying for?" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all h-24 resize-none" /></div>
-                    <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Create Fiat Escrow <ArrowRight className="w-4 h-4" /></button>
+                        <div><label className="text-xs text-slate-400 ml-1 font-bold">DESCRIPTION</label><textarea value={fiatDescription} onChange={(e) => setFiatDescription(e.target.value)} placeholder="What are you paying for?" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all h-24 resize-none" /></div>
+                        <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Create Fiat Escrow <ArrowRight className="w-4 h-4" /></button>
+                        </>
+                    )}
                     </>
                 )}
             </div>
