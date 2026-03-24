@@ -15,7 +15,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
   Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, 
-  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search
+  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail
 } from 'lucide-react';
 
 // --- CONSTANTS ---
@@ -124,7 +124,8 @@ const BANKS = [
 // 2. MAIN DASHBOARD COMPONENT
 // ==========================================
 function MainDashboard() {
-  const { login, authenticated, user, logout } = usePrivy();
+  // ✅ Added linkEmail from usePrivy
+  const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { chain } = useAccount();
   const { switchChain } = useSwitchChain();
   const searchParams = useSearchParams();
@@ -284,7 +285,6 @@ function MainDashboard() {
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
   
-  // Allow the app to refetch the total count after a new order
   const { data: totalEscrows, refetch: refetchTotalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
@@ -301,7 +301,6 @@ function MainDashboard() {
     query: { refetchInterval: 30000 }
   });
 
-  // Force the app to recount the total escrows before refreshing the list
   const handleRefresh = () => { 
       refetchTotalEscrows(); 
       refetchOrders(); 
@@ -310,14 +309,12 @@ function MainDashboard() {
       fetchDbOrders(); 
   };
 
-  // ✅ FIX 2: Single-Click Approve & Deposit Automation
   useEffect(() => {
     if (isSuccess) {
         if (txType === 'approve') {
             showToast("Approved! Automatically securing your escrow...", 'success');
             setTxType('deposit'); 
             
-            // Auto-fire the deposit without making the user click anything!
             const amountWei = parseUnits(amountInput, selectedAsset.decimals);
             writeContract({ 
                 address: CONTRACT_ADDRESS, 
@@ -341,7 +338,6 @@ function MainDashboard() {
     const buying: any[] = [];
     const selling: any[] = [];
     
-    // CRYPTO ORDERS
     if (escrowsData && userAddress) {
       escrowsData.forEach((result, index) => {
         if (result.status === 'success' && result.result) {
@@ -379,7 +375,7 @@ function MainDashboard() {
             formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            timestamp: Number(id) // Crypto orders now sort perfectly by their exact Blockchain ID 
+            timestamp: Number(id) 
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -388,13 +384,10 @@ function MainDashboard() {
       });
     }
 
-    // ✅ FIX: UPDATED FIAT ORDERS PARSING TO TRACK RELEASED AMOUNT
     Object.values(dbOrders).forEach((dbOrder: any) => {
         if (!dbOrder.paystack_ref) return;
 
         const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
-        
-        // Completely hide unpaid or canceled orders from the dashboard
         if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
         const myEmail = user?.email?.address?.toLowerCase();
@@ -405,13 +398,11 @@ function MainDashboard() {
         const isMyEmailAsSeller = myEmail && dbOrder.seller_email?.toLowerCase() === myEmail;
 
         let fiatStatusColor = "bg-yellow-500/20 text-yellow-400"; 
-        
         if (['success', 'completed'].includes(currentStatus)) fiatStatusColor = "bg-slate-700 text-slate-300";
         else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
         else if (currentStatus === 'shipped') fiatStatusColor = "bg-blue-500/20 text-blue-400";
         else if (['accepted', 'partially_released'].includes(currentStatus)) fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
 
-        // ✅ Calculate real locked balance using the new database column
         const totalAmt = Number(dbOrder.amount || 0);
         const releasedAmt = Number(dbOrder.released_amount || 0);
         const lockedAmt = totalAmt - releasedAmt;
@@ -424,7 +415,7 @@ function MainDashboard() {
             seller: dbOrder.seller_email || dbOrder.seller_name,
             amount: BigInt(0),
             formattedTotal: totalAmt.toLocaleString(),
-            formattedLocked: lockedAmt.toLocaleString(), // ✅ Shows remaining balance!
+            formattedLocked: lockedAmt.toLocaleString(), 
             token_symbol: 'NGN',
             status: isFullyPaid ? 'PAID' : currentStatus.toUpperCase().replace('_', ' '),
             statusColor: fiatStatusColor,
@@ -462,7 +453,7 @@ function MainDashboard() {
         if (currentAllowance < amountWei) {
           setTxType('approve'); 
           writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
-          showToast("Approving USDC... Please wait.", 'info'); // ✅ FIX: Updated toast message
+          showToast("Approving USDC... Please wait.", 'info'); 
           return;
         }
       }
@@ -537,7 +528,6 @@ function MainDashboard() {
       )}
 
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full gap-4">
-        {/* Logo */}
         <div className="flex items-center gap-2 min-w-max">
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3">
                 <Lock className="w-4 h-4 text-white" />
@@ -545,7 +535,6 @@ function MainDashboard() {
             <span className="text-xl font-bold hidden sm:block">TrustLink</span>
         </div>
 
-        {/* The Simple Search Engine */}
         {authenticated && (
             <form onSubmit={handleSearch} className="flex-1 max-w-lg relative group">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -561,7 +550,6 @@ function MainDashboard() {
             </form>
         )}
 
-        {/* Simple Identity Dropdown */}
         {authenticated ? (
             <div className="flex items-center gap-3 min-w-max">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
@@ -609,7 +597,25 @@ function MainDashboard() {
                     </>
                 )}
 
+                {/* 🔥 THE NEW EMAIL ENFORCEMENT LOCK */}
                 {mode === 'fiat' && (
+                    !user?.email?.address ? (
+                        <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-8 text-center flex flex-col items-center animate-in fade-in duration-300">
+                            <div className="bg-blue-500/20 p-4 rounded-full mb-4 border border-blue-500/30">
+                                <Mail className="w-8 h-8 text-blue-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">Email Required</h3>
+                            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                                Fiat transactions require an email address for Paystack receipts, security alerts, and dispute resolution. Please link an email to your wallet to continue.
+                            </p>
+                            <button 
+                                onClick={linkEmail}
+                                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                            >
+                                Link Email to Wallet
+                            </button>
+                        </div>
+                    ) : (
                     <>
                     <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-3 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"><span className="text-sm font-bold">NGN</span><div className={`w-4 h-4 rounded-full bg-green-600 flex items-center justify-center text-[8px] text-white`}>₦</div></div>
