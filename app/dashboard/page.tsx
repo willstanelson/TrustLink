@@ -124,7 +124,6 @@ const BANKS = [
 // 2. MAIN DASHBOARD COMPONENT
 // ==========================================
 function MainDashboard() {
-  // ✅ NEW: Destructured linkEmail from usePrivy
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { chain } = useAccount();
   const { switchChain } = useSwitchChain();
@@ -224,9 +223,11 @@ function MainDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  // ✅ FIX: Grab email from either standard Email or Google Login
   useEffect(() => {
-    if (user?.email?.address) {
-        setBuyerEmail(user.email.address);
+    const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
+    if (activeEmail) {
+        setBuyerEmail(activeEmail);
     }
   }, [user]);
 
@@ -396,7 +397,10 @@ function MainDashboard() {
         
         if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
-        const myEmail = user?.email?.address?.toLowerCase();
+        // ✅ FIX: Check for Google or Social emails as well
+        const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
+        const myEmail = activeEmail?.toLowerCase();
+
         const myWallet = userAddress?.toLowerCase();
         
         const isMyEmailAsBuyer = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail;
@@ -505,8 +509,8 @@ function MainDashboard() {
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
 
-  // ✅ CHECK IF USER HAS EMAIL
-  const hasEmailLinked = !!user?.email?.address;
+  // ✅ CHECK IF USER HAS ANY EMAIL (Standard, Google, Apple, etc.)
+  const hasEmailLinked = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
@@ -569,8 +573,8 @@ function MainDashboard() {
                 
                 <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg">
                     <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">
-                        {user?.email?.address 
-                            ? user.email.address.split('@')[0] 
+                        {user?.email?.address || user?.google?.email 
+                            ? (user?.email?.address || user?.google?.email)?.split('@')[0] 
                             : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Wallet")}
                     </span>
                     <Wallet className="w-4 h-4 text-emerald-400" />

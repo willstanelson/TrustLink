@@ -30,7 +30,7 @@ export default function AdminPage() {
   useEffect(() => { setIsClient(true); }, []);
 
   const userAddress = address ? address.toLowerCase() : "";
-  const userEmail = user?.email?.address?.toLowerCase() || "";
+  const userEmail = (user?.email?.address || user?.google?.email)?.toLowerCase() || "";
   const isAuthorized = (isConnected && ADMIN_WALLETS.includes(userAddress)) || 
                        (authenticated && ADMIN_EMAILS.includes(userEmail));
 
