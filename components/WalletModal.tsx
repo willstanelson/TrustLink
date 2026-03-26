@@ -1,6 +1,5 @@
 import { usePrivy } from '@privy-io/react-auth';
 import { useBalance, useSendTransaction, useWriteContract, useWaitForTransactionReceipt, useChainId, useSwitchChain, useAccount } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
 import { X, Copy, LogOut, Key, AlertTriangle, Wallet, RefreshCw, Send, ChevronLeft, Loader2, ArrowDown, CheckCircle2 } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { formatEther, formatUnits, parseEther, parseUnits, isAddress } from 'viem';
@@ -9,8 +8,9 @@ type Tab = 'wallets' | 'profile' | 'settings';
 type View = 'list' | 'send';
 
 // CONSTANTS
-const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'; 
-const MOCK_ETH_PRICE = 2800; 
+const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'; // Update this when you deploy a test USDC on Plasma
+const MOCK_XPL_PRICE = 1.50; // Mock price for XPL Token
+const PLASMA_CHAIN_ID = 9746; // ✅ Plasma Testnet ID
 
 // ABI for sending USDC
 const ERC20_ABI = [
@@ -20,7 +20,7 @@ const ERC20_ABI = [
 export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { user, logout, linkGoogle, linkTwitter, linkEmail, unlinkGoogle, unlinkTwitter, unlinkEmail, exportWallet } = usePrivy();
   
-const { address: wagmiAddress } = useAccount();
+  const { address: wagmiAddress } = useAccount();
   // Prefer Privy user wallet, fallback to Wagmi connected address
   const address = (user?.wallet?.address || wagmiAddress) as `0x${string}` | undefined;
   
@@ -29,17 +29,17 @@ const { address: wagmiAddress } = useAccount();
   const [walletView, setWalletView] = useState<View>('list');
   
   // Send Form State
-  const [sendToken, setSendToken] = useState<'ETH' | 'USDC'>('ETH');
+  const [sendToken, setSendToken] = useState<'XPL' | 'USDC'>('XPL');
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
 
   // Chain Guard
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
-  const isWrongNetwork = chainId !== sepolia.id;
+  const isWrongNetwork = chainId !== PLASMA_CHAIN_ID;
 
-  // 1. Fetch Balances
-  const { data: ethBalance, refetch: refetchEth } = useBalance({ 
+  // 1. Fetch Balances (Native Token is XPL)
+  const { data: xplBalance, refetch: refetchXpl } = useBalance({ 
     address, 
     query: { enabled: !!address } 
   });
@@ -51,20 +51,20 @@ const { address: wagmiAddress } = useAccount();
   });
 
   // 2. Transaction Hooks
-  const { sendTransaction, data: ethHash, isPending: isSendingEth, error: ethError, reset: resetEth } = useSendTransaction();
+  const { sendTransaction, data: nativeHash, isPending: isSendingNative, error: nativeError, reset: resetNative } = useSendTransaction();
   const { writeContract, data: tokenHash, isPending: isSendingToken, error: tokenError, reset: resetToken } = useWriteContract();
   
-  const txHash = sendToken === 'ETH' ? ethHash : tokenHash;
-  const txError = sendToken === 'ETH' ? ethError : tokenError;
+  const txHash = sendToken === 'XPL' ? nativeHash : tokenHash;
+  const txError = sendToken === 'XPL' ? nativeError : tokenError;
   
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   // 3. Totals Calculation
   const totalValueUSD = useMemo(() => {
-    const ethQty = ethBalance ? parseFloat(formatEther(ethBalance.value)) : 0;
+    const xplQty = xplBalance ? parseFloat(formatEther(xplBalance.value)) : 0;
     const usdcQty = usdcBalance ? parseFloat(formatUnits(usdcBalance.value, 6)) : 0;
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((ethQty * MOCK_ETH_PRICE) + usdcQty);
-  }, [ethBalance, usdcBalance]);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format((xplQty * MOCK_XPL_PRICE) + usdcQty);
+  }, [xplBalance, usdcBalance]);
 
   // Reset on success
   useEffect(() => {
@@ -73,23 +73,24 @@ const { address: wagmiAddress } = useAccount();
       setAmount('');
       setRecipient('');
       setWalletView('list');
-      resetEth();
+      resetNative();
       resetToken();
-      refetchEth();
+      refetchXpl();
       refetchUsdc();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
 
   if (!isOpen) return null;
 
   // Actions
   const handleCopy = () => { if (address) { navigator.clipboard.writeText(address); alert("Address copied!"); } };
-  const refreshBalances = () => { refetchEth(); refetchUsdc(); };
+  const refreshBalances = () => { refetchXpl(); refetchUsdc(); };
   
   const handleMax = () => {
-    if (sendToken === 'ETH' && ethBalance) {
-        // Leave a tiny bit for gas (0.0001 ETH)
-        const val = parseFloat(ethBalance.formatted) - 0.0001;
+    if (sendToken === 'XPL' && xplBalance) {
+        // Leave a tiny bit for gas (0.0001 XPL)
+        const val = parseFloat(xplBalance.formatted) - 0.0001;
         setAmount(val > 0 ? val.toString() : '0');
     }
     if (sendToken === 'USDC' && usdcBalance) {
@@ -98,11 +99,11 @@ const { address: wagmiAddress } = useAccount();
   };
 
   const handleSend = () => {
-    if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
+    if (isWrongNetwork) { switchChain({ chainId: PLASMA_CHAIN_ID }); return; }
     if (!isAddress(recipient) || !amount) return;
     
     try {
-      if (sendToken === 'ETH') {
+      if (sendToken === 'XPL') {
         sendTransaction({ to: recipient as `0x${string}`, value: parseEther(amount) });
       } else {
         writeContract({
@@ -164,10 +165,15 @@ const { address: wagmiAddress } = useAccount();
                         <div>
                             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">My Assets</p>
                             <div className="space-y-3">
+                                {/* ✅ XPL TILE */}
                                 <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700">
-                                    <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-xs border border-slate-600">ETH</div><div><p className="text-sm font-bold text-white">Ethereum</p><p className="text-[10px] text-slate-500">Sepolia</p></div></div>
-                                    <div className="text-right"><p className="text-sm font-bold text-white">{ethBalance ? parseFloat(formatEther(ethBalance.value)).toFixed(4) : '0.00'}</p></div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-xs border border-purple-500">XPL</div>
+                                        <div><p className="text-sm font-bold text-white">Plasma</p><p className="text-[10px] text-slate-500">Plasma Testnet</p></div>
+                                    </div>
+                                    <div className="text-right"><p className="text-sm font-bold text-white">{xplBalance ? parseFloat(formatEther(xplBalance.value)).toFixed(4) : '0.00'}</p></div>
                                 </div>
+                                {/* ✅ USDC TILE */}
                                 <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700">
                                     <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs">USD</div><div><p className="text-sm font-bold text-white">USDC</p><p className="text-[10px] text-slate-500">Stablecoin</p></div></div>
                                     <div className="text-right"><p className="text-sm font-bold text-white">{usdcBalance ? parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2) : '0.00'}</p></div>
@@ -184,8 +190,9 @@ const { address: wagmiAddress } = useAccount();
                         <div className="space-y-4">
                            <h3 className="text-xl font-bold text-white">Send Assets</h3>
                            
+                           {/* ✅ XPL / USDC TOGGLE */}
                            <div className="bg-slate-800 p-1 rounded-xl flex border border-slate-700">
-                              {['ETH', 'USDC'].map(t => (
+                              {['XPL', 'USDC'].map(t => (
                                 <button key={t} onClick={() => setSendToken(t as any)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${sendToken === t ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}>{t}</button>
                               ))}
                            </div>
@@ -208,8 +215,8 @@ const { address: wagmiAddress } = useAccount();
                            {txError && <div className="text-red-400 text-xs bg-red-900/20 p-3 rounded-lg border border-red-900/50 flex items-center gap-2"><AlertTriangle className="w-4 h-4"/> {txError.message.slice(0, 50)}...</div>}
 
                            <div className="pt-4">
-                             <button onClick={handleSend} disabled={isSendingEth || isSendingToken || isConfirming || !amount || !recipient} className={`w-full text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
-                                {(isSendingEth || isSendingToken || isConfirming) ? <Loader2 className="animate-spin w-5 h-5"/> : <Send className="w-5 h-5" />}
+                             <button onClick={handleSend} disabled={isSendingNative || isSendingToken || isConfirming || !amount || !recipient} className={`w-full text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
+                                {(isSendingNative || isSendingToken || isConfirming) ? <Loader2 className="animate-spin w-5 h-5"/> : <Send className="w-5 h-5" />}
                                 {isWrongNetwork ? "Switch Network" : isConfirming ? "Confirming..." : "Send Transaction"}
                              </button>
                            </div>
@@ -219,7 +226,7 @@ const { address: wagmiAddress } = useAccount();
                 </>
             )}
             
-            {/* --- TAB: PROFILE (RESTORED) --- */}
+            {/* --- TAB: PROFILE --- */}
             {activeTab === 'profile' && (
                 <div className="space-y-4">
                     <div className="text-center mb-6">
