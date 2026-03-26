@@ -6,7 +6,6 @@
 import OrderCard from '@/components/OrderCard';
 import WalletModal from '@/components/WalletModal';
 import { usePrivy } from '@privy-io/react-auth';
-// ✅ ADDED useChainId
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
@@ -127,7 +126,8 @@ const BANKS = [
 // ==========================================
 function MainDashboard() {
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
-  const { switchChain } = useSwitchChain();
+  // ✅ ADDED ERROR CATCHER FOR NETWORK SWITCH
+  const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
   
@@ -159,7 +159,8 @@ function MainDashboard() {
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { writeContract, data: txHash, isPending: isWriting } = useWriteContract();
+  // ✅ ADDED ERROR CATCHER FOR CONTRACT WRITES
+  const { writeContract, data: txHash, isPending: isWriting, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   useEffect(() => { 
@@ -170,6 +171,20 @@ function MainDashboard() {
   }, [notification]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
+
+  // ✅ NEW: SILENT ERROR TRAPPERS
+  useEffect(() => {
+      if (writeError) {
+          // Extracts the short, readable version of the Wagmi error (e.g. "Insufficient funds")
+          const errorMsg = (writeError as any).shortMessage || writeError.message;
+          showToast(errorMsg, 'error');
+          setTxType(null); // Reset the loading state
+      }
+  }, [writeError]);
+
+  useEffect(() => {
+      if (switchError) showToast(switchError.message, 'error');
+  }, [switchError]);
 
   const handleSearch = (e: React.FormEvent) => {
       e.preventDefault();
@@ -464,7 +479,7 @@ function MainDashboard() {
       setTxType('deposit'); 
       // ✅ FIX: Force Wagmi to explicitly sign on Plasma
       writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isNative ? amountWei : BigInt(0) });
-      showToast("Deposit Request Sent...", 'info');
+      showToast("Awaiting wallet confirmation...", 'info');
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
 
@@ -526,58 +541,31 @@ function MainDashboard() {
         </div>
       )}
 
+      {/* ✅ FIXED: Beautiful Blue UI for 'info' loading toasts! */}
       {notification && (
-        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
-            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-            <p className="text-sm font-bold">{notification.message}</p>
+        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md max-w-sm ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : notification.type === 'info' ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
+            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" /> : notification.type === 'info' ? <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
+            <p className="text-sm font-bold truncate">{notification.message}</p>
         </div>
       )}
 
       <nav className="flex items-center justify-between px-6 py-6 max-w-6xl mx-auto w-full gap-4">
-        {/* Logo */}
-        <div className="flex items-center gap-2 min-w-max">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3">
-                <Lock className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-xl font-bold hidden sm:block">TrustLink</span>
-        </div>
+        <div className="flex items-center gap-2 min-w-max"><div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3"><Lock className="w-4 h-4 text-white" /></div><span className="text-xl font-bold hidden sm:block">TrustLink</span></div>
 
-        {/* The Simple Search Engine */}
         {authenticated && (
             <form onSubmit={handleSearch} className="flex-1 max-w-lg relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-4 w-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" />
-                </div>
-                <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2.5 border border-slate-700 rounded-2xl leading-5 bg-slate-900/50 text-slate-300 placeholder-slate-500 focus:outline-none focus:bg-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 sm:text-sm transition-all shadow-inner"
-                    placeholder="Search seller by email or wallet..."
-                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-4 w-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" /></div>
+                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="block w-full pl-10 pr-3 py-2.5 border border-slate-700 rounded-2xl leading-5 bg-slate-900/50 text-slate-300 placeholder-slate-500 focus:outline-none focus:bg-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 sm:text-sm transition-all shadow-inner" placeholder="Search seller by email or wallet..." />
             </form>
         )}
 
-        {/* Simple Identity Dropdown */}
         {authenticated ? (
             <div className="flex items-center gap-3 min-w-max">
                 {isWrongNetwork && <button onClick={() => switchChain({ chainId: PLASMA_CHAIN_ID })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
-                
-                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg">
-                    <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">
-                        {user?.email?.address || user?.google?.email 
-                            ? (user?.email?.address || user?.google?.email)?.split('@')[0] 
-                            : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Wallet")}
-                    </span>
-                    <Wallet className="w-4 h-4 text-emerald-400" />
-                </button>
-                <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-2xl border border-red-500/20 transition-all">
-                    <LogOut className="w-4 h-4" />
-                </button>
+                <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg"><span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">{user?.email?.address || user?.google?.email ? (user?.email?.address || user?.google?.email)?.split('@')[0] : (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "Wallet")}</span><Wallet className="w-4 h-4 text-emerald-400" /></button>
+                <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-2xl border border-red-500/20 transition-all"><LogOut className="w-4 h-4" /></button>
             </div>
-        ) : (
-            <button onClick={login} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-2xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20">Log In</button>
-        )}
+        ) : (<button onClick={login} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-2.5 rounded-2xl text-sm font-bold transition-all shadow-lg shadow-emerald-500/20">Log In</button>)}
       </nav>
 
       <main className="flex flex-col items-center mt-10 px-4 max-w-4xl mx-auto">
@@ -595,22 +583,12 @@ function MainDashboard() {
                 {mode === 'crypto' && (
                     <>
                     <div className="relative">
-                        <button onClick={() => setIsTokenListOpen(!isTokenListOpen)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 flex justify-between items-center hover:border-slate-600 transition-all">
-                            <div className="flex items-center gap-2"><div className={`w-5 h-5 rounded-full ${selectedAsset.icon} flex items-center justify-center text-[8px]`}>{selectedAsset.symbol[0]}</div><span>{selectedAsset.symbol}</span></div><ChevronDown className="w-4 h-4 text-slate-500" />
-                        </button>
+                        <button onClick={() => setIsTokenListOpen(!isTokenListOpen)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 flex justify-between items-center hover:border-slate-600 transition-all"><div className="flex items-center gap-2"><div className={`w-5 h-5 rounded-full ${selectedAsset.icon} flex items-center justify-center text-[8px]`}>{selectedAsset.symbol[0]}</div><span>{selectedAsset.symbol}</span></div><ChevronDown className="w-4 h-4 text-slate-500" /></button>
                         {isTokenListOpen && <div className="absolute top-full w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl z-20 overflow-hidden shadow-xl">{ASSETS.map(a => <div key={a.symbol} onClick={() => { setSelectedAsset(a); setIsTokenListOpen(false); }} className="p-3 hover:bg-slate-700 cursor-pointer flex gap-3"><div className={`w-6 h-6 rounded-full ${a.icon} flex items-center justify-center text-[10px]`}>{a.symbol[0]}</div>{a.name}</div>)}</div>}
                     </div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x..." className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
-                    
-                    {/* ✅ UPDATED BUTTON: Forces network switch visually if needed */}
-                    <button 
-                        onClick={handleCryptoTransaction} 
-                        disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} 
-                        className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}
-                    >
-                        {(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}
-                    </button>
+                    <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>{(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}</button>
                     </>
                 )}
 
@@ -619,19 +597,10 @@ function MainDashboard() {
                     <>
                     {!hasEmailLinked ? (
                         <div className="flex flex-col items-center justify-center p-6 bg-slate-900/50 border border-slate-700 rounded-2xl text-center gap-4 mt-2">
-                            <div className="w-14 h-14 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mb-2">
-                                <Mail className="w-6 h-6 text-blue-400" />
-                            </div>
+                            <div className="w-14 h-14 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mb-2"><Mail className="w-6 h-6 text-blue-400" /></div>
                             <h3 className="text-lg font-bold text-white">Email Verification Required</h3>
-                            <p className="text-sm text-slate-400 leading-relaxed">
-                                To use Fiat (NGN) escrows, you must link an email address to your account. This ensures you receive payment receipts and secure dispute notifications.
-                            </p>
-                            <button 
-                                onClick={linkEmail} 
-                                className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl mt-2 transition-all w-full flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
-                            >
-                                Link Email Address <ArrowRight className="w-4 h-4"/>
-                            </button>
+                            <p className="text-sm text-slate-400 leading-relaxed">To use Fiat (NGN) escrows, you must link an email address to your account. This ensures you receive payment receipts and secure dispute notifications.</p>
+                            <button onClick={linkEmail} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl mt-2 transition-all w-full flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">Link Email Address <ArrowRight className="w-4 h-4"/></button>
                         </div>
                     ) : (
                         <>
@@ -639,15 +608,11 @@ function MainDashboard() {
                             <div className="col-span-1 bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-3 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"><span className="text-sm font-bold">NGN</span><div className={`w-4 h-4 rounded-full bg-green-600 flex items-center justify-center text-[8px] text-white`}>₦</div></div>
                             <div className="col-span-2"><input type="number" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Amount (e.g. 5000)" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" /></div>
                         </div>
-                        
-                        {/* ✅ LOCKED EMAIL FIELD */}
                         <div className="opacity-70 cursor-not-allowed">
                             <label className="text-xs text-slate-400 ml-1 font-bold flex items-center gap-1.5">YOUR EMAIL <Lock className="w-3 h-3 text-slate-500"/></label>
                             <input readOnly value={buyerEmail} className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none text-slate-400 cursor-not-allowed" />
                         </div>
-                        
                         <div><label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label><input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
-
                         <div>
                             <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
                             <div className="flex flex-col gap-2 mt-1">
@@ -676,9 +641,7 @@ function MainDashboard() {
                 </div>
                 
                 <div className="flex items-center gap-3 pb-3">
-                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">
-                         Showing {mode} Orders
-                     </span>
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">Showing {mode} Orders</span>
                      <button onClick={handleRefresh} className="text-slate-500 hover:text-white"><RefreshCcw className="w-4 h-4" /></button>
                 </div>
             </div>
@@ -689,9 +652,7 @@ function MainDashboard() {
                 ))}
                 
                 {displayedOrders.length === 0 && (
-                    <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">
-                        No active <span className="capitalize">{mode}</span> orders found.
-                    </div>
+                    <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">No active <span className="capitalize">{mode}</span> orders found.</div>
                 )}
             </div>
         </div>
@@ -702,11 +663,7 @@ function MainDashboard() {
 
 export default function Home() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>}>
       <MainDashboard />
     </Suspense>
   );
