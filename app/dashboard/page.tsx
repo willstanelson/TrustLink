@@ -6,7 +6,8 @@
 import OrderCard from '@/components/OrderCard';
 import WalletModal from '@/components/WalletModal';
 import { usePrivy } from '@privy-io/react-auth';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance } from 'wagmi';
+// ✅ ADDED useChainId
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
 import React, { useEffect, useState, useMemo, Suspense } from 'react'; 
@@ -19,7 +20,7 @@ import {
 
 // --- CONSTANTS ---
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const PLASMA_CHAIN_ID = 9746; // ✅ NEW: Plasma Testnet ID
+const PLASMA_CHAIN_ID = 9746; // ✅ Plasma Testnet ID
 
 const ERC20_ABI = [
   { inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], name: 'allowance', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' },
@@ -27,9 +28,7 @@ const ERC20_ABI = [
 ];
 
 const ASSETS = [
-  // ✅ NEW: Swapped ETH for Plasma (XPL)
   { symbol: 'XPL', name: 'Plasma', type: 'native', icon: 'bg-purple-600', address: ZERO_ADDRESS, decimals: 18 },
-  // NOTE: You will need to update this USDC address later when you deploy a test USDC token to Plasma
   { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
 ];
 
@@ -128,7 +127,6 @@ const BANKS = [
 // ==========================================
 function MainDashboard() {
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
-  const { chain } = useAccount();
   const { switchChain } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -180,7 +178,6 @@ function MainDashboard() {
       }
   };
 
-  // VERIFY PAYMENT ON RETURN INSTEAD OF BLIND TRUST
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
@@ -194,19 +191,17 @@ function MainDashboard() {
         .then(res => res.json())
         .then(data => {
             if (data.status) {
-                setShowSuccessModal(true); // Only show if Paystack says "success"
+                setShowSuccessModal(true); 
             } else {
                 showToast("Payment was cancelled or failed.", "error");
             }
             fetchDbOrders(); 
-            // Stay on the dashboard!
             router.replace('/dashboard'); 
         });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // MAGIC PRE-FILL: Catch the seller details from the profile page search
   useEffect(() => {
     const prefillSeller = searchParams.get('seller');
     const prefillMode = searchParams.get('autoMode');
@@ -219,14 +214,11 @@ function MainDashboard() {
             setMode('crypto');
             setSellerAddress(prefillSeller);
         }
-        
-        // Wipe the URL clean so it looks like magic
         router.replace('/dashboard');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // ✅ FIX: Grab email from either standard Email or Google Login
   useEffect(() => {
     const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
     if (activeEmail) {
@@ -266,12 +258,12 @@ function MainDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountNumber, bankCode]);
 
-  // Prioritize the active Wagmi transaction wallet over the initial login wallet
   const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
   
-  // ✅ NEW: Enforce the Plasma Chain ID
-  const isWrongNetwork = authenticated && chain && chain.id !== PLASMA_CHAIN_ID;
+  // ✅ FIX: Use strict useChainId hook
+  const chainId = useChainId();
+  const isWrongNetwork = authenticated && chainId !== PLASMA_CHAIN_ID;
 
   const fetchDbOrders = async () => {
     const { data } = await supabase.from('escrow_orders').select('*');
@@ -291,7 +283,6 @@ function MainDashboard() {
     query: { enabled: !!userAddress && selectedAsset.symbol === 'USDC' }
   });
   
-  // Allow the app to refetch the total count after a new order
   const { data: totalEscrows, refetch: refetchTotalEscrows } = useReadContract({ abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount' });
   const count = totalEscrows ? Number(totalEscrows) : 0;
   
@@ -308,7 +299,6 @@ function MainDashboard() {
     query: { refetchInterval: 30000 }
   });
 
-  // Force the app to recount the total escrows before refreshing the list
   const handleRefresh = () => { 
       refetchTotalEscrows(); 
       refetchOrders(); 
@@ -317,15 +307,16 @@ function MainDashboard() {
       fetchDbOrders(); 
   };
 
+  // ✅ FIX: Force Wagmi to explicitly sign on Plasma
   useEffect(() => {
     if (isSuccess) {
         if (txType === 'approve') {
             showToast("Approved! Automatically securing your escrow...", 'success');
             setTxType('deposit'); 
             
-            // Auto-fire the deposit without making the user click anything!
             const amountWei = parseUnits(amountInput, selectedAsset.decimals);
             writeContract({ 
+                chainId: PLASMA_CHAIN_ID, // Hard lock to Plasma
                 address: CONTRACT_ADDRESS, 
                 abi: CONTRACT_ABI, 
                 functionName: 'createEscrow', 
@@ -380,12 +371,12 @@ function MainDashboard() {
             id, buyer, seller, token: tokenAddr, amount: totalAmount, lockedBalance,
             isAccepted, isShipped, isDisputed: chainDisputed, isCompleted: chainCompleted,
             status, statusColor,
-            token_symbol: isNative ? 'XPL' : 'USDC', // ✅ NEW: Swapped ETH to XPL
+            token_symbol: isNative ? 'XPL' : 'USDC', 
             formattedTotal: isNative ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
             formattedLocked: isNative ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
-            timestamp: Number(id) // Crypto orders now sort perfectly by their exact Blockchain ID 
+            timestamp: Number(id)  
           };
 
           if (buyer.toLowerCase() === userAddress.toLowerCase()) buying.push(order);
@@ -399,13 +390,10 @@ function MainDashboard() {
         if (!dbOrder.paystack_ref) return;
 
         const currentStatus = dbOrder.status?.toLowerCase() || 'pending';
-        
         if (currentStatus === 'awaiting_payment' || currentStatus === 'failed') return;
 
-        // ✅ FIX: Check for Google or Social emails as well
         const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
         const myEmail = activeEmail?.toLowerCase();
-
         const myWallet = userAddress?.toLowerCase();
         
         const isMyEmailAsBuyer = myEmail && dbOrder.buyer_email?.toLowerCase() === myEmail;
@@ -455,14 +443,12 @@ function MainDashboard() {
   }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
 
   const handleCryptoTransaction = async () => {
-    // ✅ NEW: Switch to Plasma ID if they are on the wrong network
     if (isWrongNetwork) { switchChain({ chainId: PLASMA_CHAIN_ID }); return; }
     if (!sellerAddress || !amountInput) return;
     if (!isAddress(sellerAddress)) { showToast("Invalid Wallet Address", 'error'); return; }
     if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
 
     try {
-      // ✅ NEW: Check for XPL
       const isNative = selectedAsset.symbol === 'XPL';
       const amountWei = parseUnits(amountInput, isNative ? 18 : 6);
 
@@ -470,13 +456,14 @@ function MainDashboard() {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
           setTxType('approve'); 
-          writeContract({ address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
+          writeContract({ chainId: PLASMA_CHAIN_ID, address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
           showToast("Approving USDC... Please wait.", 'info'); 
           return;
         }
       }
       setTxType('deposit'); 
-      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isNative ? amountWei : BigInt(0) });
+      // ✅ FIX: Force Wagmi to explicitly sign on Plasma
+      writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isNative ? amountWei : BigInt(0) });
       showToast("Deposit Request Sent...", 'info');
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
@@ -515,8 +502,6 @@ function MainDashboard() {
 
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
-
-  // ✅ CHECK IF USER HAS ANY EMAIL (Standard, Google, Apple, etc.)
   const hasEmailLinked = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
 
   return (
@@ -617,7 +602,15 @@ function MainDashboard() {
                     </div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x..." className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
-                    <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || !sellerAddress || !amountInput} className="w-full bg-emerald-500 hover:bg-emerald-400 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">{(isWriting || isConfirming) ? <Loader2 className="animate-spin" /> : "Deposit Crypto"}</button>
+                    
+                    {/* ✅ UPDATED BUTTON: Forces network switch visually if needed */}
+                    <button 
+                        onClick={handleCryptoTransaction} 
+                        disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} 
+                        className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}
+                    >
+                        {(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}
+                    </button>
                     </>
                 )}
 
