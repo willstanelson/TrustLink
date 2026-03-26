@@ -1,5 +1,5 @@
-// ✅ BEST PRACTICE: Force the type at the source
-export const CONTRACT_ADDRESS = "0xCA0Dc428795A72f6A9131cbeAD58C1E6340cA8b2" as `0x${string}`;
+// The new Plasma Testnet Contract Address
+export const CONTRACT_ADDRESS = "0x27aCD1C45583B005CB071B23eF147702A618420E";
 
 export const CONTRACT_ABI = [
   {

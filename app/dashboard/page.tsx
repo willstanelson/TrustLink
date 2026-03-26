@@ -7,7 +7,6 @@ import OrderCard from '@/components/OrderCard';
 import WalletModal from '@/components/WalletModal';
 import { usePrivy } from '@privy-io/react-auth';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
 import React, { useEffect, useState, useMemo, Suspense } from 'react'; 
@@ -20,13 +19,17 @@ import {
 
 // --- CONSTANTS ---
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const PLASMA_CHAIN_ID = 9746; // ✅ NEW: Plasma Testnet ID
+
 const ERC20_ABI = [
   { inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], name: 'allowance', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable', type: 'function' }
 ];
 
 const ASSETS = [
-  { symbol: 'ETH', name: 'Ethereum', type: 'native', icon: 'bg-slate-700', address: ZERO_ADDRESS, decimals: 18 },
+  // ✅ NEW: Swapped ETH for Plasma (XPL)
+  { symbol: 'XPL', name: 'Plasma', type: 'native', icon: 'bg-purple-600', address: ZERO_ADDRESS, decimals: 18 },
+  // NOTE: You will need to update this USDC address later when you deploy a test USDC token to Plasma
   { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', decimals: 6 },
 ];
 
@@ -266,7 +269,9 @@ function MainDashboard() {
   // Prioritize the active Wagmi transaction wallet over the initial login wallet
   const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
-  const isWrongNetwork = authenticated && chain && chain.id !== sepolia.id;
+  
+  // ✅ NEW: Enforce the Plasma Chain ID
+  const isWrongNetwork = authenticated && chain && chain.id !== PLASMA_CHAIN_ID;
 
   const fetchDbOrders = async () => {
     const { data } = await supabase.from('escrow_orders').select('*');
@@ -360,7 +365,7 @@ function MainDashboard() {
           const isAccepted = dbOrder?.status === 'accepted' || dbOrder?.status === 'shipped' || escrow[6];
           const isShipped = dbOrder?.status === 'shipped' || escrow[7];
           
-          const isEth = tokenAddr === ZERO_ADDRESS;
+          const isNative = tokenAddr === ZERO_ADDRESS;
           const paidAmount = totalAmount - lockedBalance;
           const percentPaid = totalAmount > BigInt(0) ? Number((paidAmount * BigInt(100)) / totalAmount) : 0;
 
@@ -375,9 +380,9 @@ function MainDashboard() {
             id, buyer, seller, token: tokenAddr, amount: totalAmount, lockedBalance,
             isAccepted, isShipped, isDisputed: chainDisputed, isCompleted: chainCompleted,
             status, statusColor,
-            token_symbol: isEth ? 'ETH' : 'USDC',
-            formattedTotal: isEth ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
-            formattedLocked: isEth ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
+            token_symbol: isNative ? 'XPL' : 'USDC', // ✅ NEW: Swapped ETH to XPL
+            formattedTotal: isNative ? formatEther(totalAmount) : formatUnits(totalAmount, 6),
+            formattedLocked: isNative ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
             percentPaid,
             type: 'CRYPTO',
             timestamp: Number(id) // Crypto orders now sort perfectly by their exact Blockchain ID 
@@ -450,16 +455,18 @@ function MainDashboard() {
   }, [escrowsData, userAddress, indexesToFetch, dbOrders, user]);
 
   const handleCryptoTransaction = async () => {
-    if (isWrongNetwork) { switchChain({ chainId: sepolia.id }); return; }
+    // ✅ NEW: Switch to Plasma ID if they are on the wrong network
+    if (isWrongNetwork) { switchChain({ chainId: PLASMA_CHAIN_ID }); return; }
     if (!sellerAddress || !amountInput) return;
-    if (!isAddress(sellerAddress)) { showToast("Invalid Ethereum Address", 'error'); return; }
+    if (!isAddress(sellerAddress)) { showToast("Invalid Wallet Address", 'error'); return; }
     if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
 
     try {
-      const isEth = selectedAsset.symbol === 'ETH';
-      const amountWei = parseUnits(amountInput, isEth ? 18 : 6);
+      // ✅ NEW: Check for XPL
+      const isNative = selectedAsset.symbol === 'XPL';
+      const amountWei = parseUnits(amountInput, isNative ? 18 : 6);
 
-      if (!isEth) {
+      if (!isNative) {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
           setTxType('approve'); 
@@ -469,7 +476,7 @@ function MainDashboard() {
         }
       }
       setTxType('deposit'); 
-      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isEth ? amountWei : BigInt(0) });
+      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isNative ? amountWei : BigInt(0) });
       showToast("Deposit Request Sent...", 'info');
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
@@ -569,7 +576,7 @@ function MainDashboard() {
         {/* Simple Identity Dropdown */}
         {authenticated ? (
             <div className="flex items-center gap-3 min-w-max">
-                {isWrongNetwork && <button onClick={() => switchChain({ chainId: sepolia.id })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
+                {isWrongNetwork && <button onClick={() => switchChain({ chainId: PLASMA_CHAIN_ID })} className="text-red-400 text-xs font-bold border border-red-500 px-3 py-1 rounded-full bg-red-500/10">Wrong Network</button>}
                 
                 <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg">
                     <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">
