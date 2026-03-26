@@ -10,6 +10,9 @@ import dynamic from 'next/dynamic';
 import TrustBadge from './TrustBadge';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../app/constants';
 
+// ✅ NEW: Added Plasma Chain ID for strict network locking
+const PLASMA_CHAIN_ID = 9746;
+
 const SecureChat = dynamic(() => import('./SecureChat'), { 
   ssr: false,
   loading: () => <div className="hidden">Loading Chat...</div>
@@ -46,7 +49,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
   
   const chatOpenRef = useRef(showChat);
 
-  const { writeContract, data: txHash, isPending } = useWriteContract();
+  // ✅ FIX: Added error catcher to the Wagmi hook
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
   
   const actionRef = useRef('');
@@ -62,9 +66,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       return isFiat ? `NGN-${scrambledHex}` : `ORD-${scrambledHex}`;
   }, [rawOrderId, isFiat, order.id]);
 
-  // 🔥 NEW: Helper to send emails quietly in the background
   const sendNotification = async (to: string, subject: string, message: string) => {
-      if (!to || !to.includes('@')) return; // Silently skip if it's a crypto wallet without an email
+      if (!to || !to.includes('@')) return; 
       try {
           await fetch('/api/notify', {
               method: 'POST',
@@ -76,6 +79,15 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       }
   };
 
+  // ✅ FIX: Catch silent Wagmi errors and show them to the user
+  useEffect(() => {
+      if (writeError) {
+          const errorMsg = (writeError as any).shortMessage || writeError.message;
+          alert(`Transaction Failed: ${errorMsg}`);
+          actionRef.current = '';
+      }
+  }, [writeError]);
+
   useEffect(() => {
     if (isSuccess) {
         if (actionRef.current === 'release' && !isFiat) {
@@ -84,7 +96,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ buyer: order.buyer, seller: order.seller })
             });
-            // Notify seller of crypto release
             sendNotification(order.seller, 'Funds Released!', `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`);
             actionRef.current = ''; 
         }
@@ -165,7 +176,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     
     if (error) alert(`Database Error: ${error.message}`); 
     else {
-        // Notify Buyer
         sendNotification(order.buyer, 'Order Accepted!', `The seller has accepted your order (${displayId}). They are preparing your item/service.`);
         onUpdate();
     }
@@ -184,7 +194,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
     
     if (error) alert(`Database Error: ${error.message}`); 
     else {
-        // Notify Buyer
         sendNotification(order.buyer, 'Order Shipped!', `The seller has marked your order (${displayId}) as shipped/delivered. Please verify and release the funds when you are satisfied.`);
         onUpdate();
     }
@@ -198,7 +207,18 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
       const releaseNum = Number(cleanAmountStr);
       const lockedNum = Number(cleanLockedStr);
 
-      if (releaseNum > 0 && releaseNum < lockedNum) {
+      // ✅ FIX: Added rigid math safety checks
+      if (releaseNum <= 0) {
+          alert("Release amount must be greater than zero.");
+          return;
+      }
+      
+      if (releaseNum > lockedNum) {
+          alert(`You cannot release more than the locked amount (${lockedNum} ${order.token_symbol}). Note: Enter the token amount, not a percentage.`);
+          return;
+      }
+
+      if (releaseNum < lockedNum) {
           setPendingReleaseAmount(cleanAmountStr);
           setShowSplitWarning(true); 
       } else {
@@ -220,7 +240,6 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             const data = await response.json();
             if (data.status) {
                 alert(data.message); 
-                // Notify Seller
                 sendNotification(order.seller, 'Funds Released!', `Great news! The buyer has released ${releaseNum} NGN for order ${displayId}. It is currently processing to your bank account.`);
                 onUpdate();
             } else alert(`Release Failed: ${data.message}`);
@@ -232,9 +251,11 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
             setReleaseAmount(''); 
         }
     } else {
-        const decimals = order.token_symbol === 'ETH' ? 18 : 6;
+        const decimals = order.token_symbol === 'USDC' ? 6 : 18;
         actionRef.current = 'release'; 
+        // ✅ FIX: Explicitly locked to the Plasma network
         writeContract({ 
+            chainId: PLASMA_CHAIN_ID,
             address: CONTRACT_ADDRESS, 
             abi: CONTRACT_ABI, 
             functionName: 'releaseMilestone', 
@@ -249,12 +270,12 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', Number(rawOrderId));
         setIsDbLoading(false);
         if (!error) {
-            // Notify the other party
             sendNotification(peerAddress, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
             onUpdate();
         }
     } else {
-        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(rawOrderId)] });
+        // ✅ FIX: Explicitly locked to the Plasma network
+        writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(rawOrderId)] });
     }
   };
 
@@ -265,7 +286,8 @@ export default function OrderCard({ order, isSellerView, userAddress, onUpdate }
         setIsDbLoading(false);
         if (!error) onUpdate();
     } else {
-        writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(rawOrderId)] });
+        // ✅ FIX: Explicitly locked to the Plasma network
+        writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(rawOrderId)] });
     }
   };
 
