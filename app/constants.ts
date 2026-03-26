@@ -1,6 +1,4 @@
-// The new Plasma Testnet Contract Address
-export const CONTRACT_ADDRESS = "0x27aCD1C45583B005CB071B23eF147702A618420E";
-
+export const CONTRACT_ADDRESS = "0x27aCD1C45583B005CB071B23eF147702A618420E" as `0x${string}`;
 export const CONTRACT_ABI = [
   {
     "inputs": [],
