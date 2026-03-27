@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: false, message: "User not found. They must log into TrustLink first." }, { status: 404 });
     }
 
-    // 2. Find their linked wallet address (✅ THE FIX: Force TypeScript to accept it)
+    // 2. Find their linked wallet address
     const walletAccount: any = user.linkedAccounts.find((acc) => acc.type === 'wallet');
 
     if (!walletAccount || !walletAccount.address) {
@@ -37,6 +37,13 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("Privy Resolve Error:", error);
-    return NextResponse.json({ status: false, message: "Failed to resolve email to wallet." }, { status: 500 });
+    
+    // 🔥 THE FIX: Send the ACTUAL error message to the frontend!
+    // If the user doesn't exist, Privy throws an error instead of returning null.
+    if (error.message && error.message.includes("cannot be found")) {
+        return NextResponse.json({ status: false, message: "User not found. They must log into TrustLink first." }, { status: 404 });
+    }
+    
+    return NextResponse.json({ status: false, message: `Privy Error: ${error.message}` }, { status: 500 });
   }
 }
