@@ -101,8 +101,8 @@ export default function LandingPage() {
             <span className="font-bold text-slate-300">TrustLink</span> © {new Date().getFullYear()}
           </div>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-emerald-400 transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-emerald-400 transition-colors">Privacy Policy</a>
+            <Link href="/support" className="hover:text-emerald-400 transition-colors">Terms of Service</Link>
+            <Link href="/support" className="hover:text-emerald-400 transition-colors">Privacy Policy</Link>
           </div>
         </div>
       </footer>
