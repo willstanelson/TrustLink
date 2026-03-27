@@ -22,8 +22,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: false, message: "User not found. They must log into TrustLink first." }, { status: 404 });
     }
 
-    // 2. Find their linked wallet address
-    const walletAccount = user.linkedAccounts.find((acc: any) => acc.type === 'wallet');
+    // 2. Find their linked wallet address (✅ THE FIX: Force TypeScript to accept it)
+    const walletAccount: any = user.linkedAccounts.find((acc) => acc.type === 'wallet');
 
     if (!walletAccount || !walletAccount.address) {
       return NextResponse.json({ status: false, message: "User found, but they don't have a wallet yet." }, { status: 400 });
