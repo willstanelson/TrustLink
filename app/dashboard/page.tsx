@@ -322,6 +322,16 @@ function MainDashboard() {
       fetchDbOrders(); 
   };
 
+  // ✅ NEW: Auto-refresh the dashboard every 10 seconds in the background
+  useEffect(() => {
+      const intervalId = setInterval(() => {
+          handleRefresh();
+      }, 5000); // 5000ms = 5 seconds
+
+      return () => clearInterval(intervalId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ✅ FIX: Force Wagmi to explicitly sign on Plasma
   useEffect(() => {
     if (isSuccess) {
