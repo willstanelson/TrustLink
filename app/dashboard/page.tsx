@@ -470,8 +470,32 @@ function MainDashboard() {
   const handleCryptoTransaction = async () => {
     if (isWrongNetwork) { switchChain({ chainId: PLASMA_CHAIN_ID }); return; }
     if (!sellerAddress || !amountInput) return;
-    if (!isAddress(sellerAddress)) { showToast("Invalid Wallet Address", 'error'); return; }
-    if (sellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
+    
+    let finalSellerAddress = sellerAddress.trim();
+
+    // ✅ THE MAGIC EMAIL TRANSLATOR
+    if (finalSellerAddress.includes('@')) {
+        showToast("Resolving email to secure wallet...", 'info');
+        try {
+            const res = await fetch('/api/privy/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: finalSellerAddress })
+            });
+            const data = await res.json();
+            
+            if (!data.status) throw new Error(data.message);
+            
+            finalSellerAddress = data.address; // Swap the email for the 0x address!
+            showToast(`Found wallet: ${finalSellerAddress.slice(0,6)}...${finalSellerAddress.slice(-4)}`, 'success');
+        } catch (err: any) {
+            showToast(err.message, 'error');
+            return; // Stop the transaction if we can't find the email
+        }
+    }
+
+    if (!isAddress(finalSellerAddress)) { showToast("Invalid Wallet Address or Email", 'error'); return; }
+    if (finalSellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
 
     try {
       const isNative = selectedAsset.symbol === 'XPL';
@@ -488,7 +512,14 @@ function MainDashboard() {
       }
       setTxType('deposit'); 
       // ✅ FIX: Force Wagmi to explicitly sign on Plasma
-      writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow', args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], value: isNative ? amountWei : BigInt(0) });
+      writeContract({ 
+          chainId: PLASMA_CHAIN_ID, 
+          address: CONTRACT_ADDRESS, 
+          abi: CONTRACT_ABI, 
+          functionName: 'createEscrow', 
+          args: [finalSellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], 
+          value: isNative ? amountWei : BigInt(0) 
+      });
       showToast("Awaiting wallet confirmation...", 'info');
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }
   };
@@ -596,7 +627,8 @@ function MainDashboard() {
                         <button onClick={() => setIsTokenListOpen(!isTokenListOpen)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 flex justify-between items-center hover:border-slate-600 transition-all"><div className="flex items-center gap-2"><div className={`w-5 h-5 rounded-full ${selectedAsset.icon} flex items-center justify-center text-[8px]`}>{selectedAsset.symbol[0]}</div><span>{selectedAsset.symbol}</span></div><ChevronDown className="w-4 h-4 text-slate-500" /></button>
                         {isTokenListOpen && <div className="absolute top-full w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl z-20 overflow-hidden shadow-xl">{ASSETS.map(a => <div key={a.symbol} onClick={() => { setSelectedAsset(a); setIsTokenListOpen(false); }} className="p-3 hover:bg-slate-700 cursor-pointer flex gap-3"><div className={`w-6 h-6 rounded-full ${a.icon} flex items-center justify-center text-[10px]`}>{a.symbol[0]}</div>{a.name}</div>)}</div>}
                     </div>
-                    <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x..." className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
+                    {/* ✅ UPDATED PLACEHOLDER */}
+                    <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS OR EMAIL</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x... or seller@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>{(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}</button>
                     </>
