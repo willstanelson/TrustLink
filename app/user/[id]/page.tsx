@@ -19,24 +19,53 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
 
     useEffect(() => {
         const fetchReputation = async () => {
-            const { data } = await supabase.from('profiles').select('*').eq('id', decodedId).single();
-            if (data) {
-                const total = Number(data.total_orders) || 0;
-                const success = Number(data.successful_orders) || 0;
-                const scams = Number(data.severe_strikes) || 0;
-                
-                // 🔥 THE REPUTATION NUKE
-                let score = total > 0 ? Math.round((success / total) * 100) : 0;
-                if (scams > 0) score = 0;
+            try {
+                // 🔥 THE FIX: Dynamically query using YOUR exact column names!
+                // (seller_address instead of seller_wallet_address)
+                const queryStr = isEmail 
+                    ? `seller_email.eq.${decodedId},buyer_email.eq.${decodedId}`
+                    : `seller_address.ilike.${decodedId},buyer_wallet_address.ilike.${decodedId}`;
 
-                setStats({ total, successful: success, lost: Number(data.disputes_lost) || 0, score });
+                const { data, error } = await supabase
+                    .from('escrow_orders')
+                    .select('status')
+                    .or(queryStr);
+
+                if (error) {
+                    console.error("Supabase error:", error.message);
+                    throw error;
+                }
+
+                if (data && data.length > 0) {
+                    const total = data.length;
+                    
+                    // Tally up the good transactions
+                    const success = data.filter(order => 
+                        ['success', 'completed', 'shipped', 'accepted'].includes(order.status?.toLowerCase())
+                    ).length;
+
+                    // Tally up the bad/disputed transactions
+                    const lost = data.filter(order => 
+                        ['disputed', 'cancelled', 'failed'].includes(order.status?.toLowerCase())
+                    ).length;
+
+                    // Calculate a real Trust Score percentage
+                    let score = Math.round((success / total) * 100);
+
+                    setStats({ total, successful: success, lost, score });
+                } else {
+                    // No history found at all
+                    setStats({ total: 0, successful: 0, lost: 0, score: 0 });
+                }
+            } catch (err) {
+                console.error("Failed to fetch reputation:", err);
+            } finally {
+                setIsLoading(false);
             }
-            setIsLoading(false);
         };
         
-        // This is what got cut off!
         fetchReputation();
-    }, [decodedId]);
+    }, [decodedId, isEmail]);
 
     if (isLoading) return <div className="min-h-screen bg-[#0f172a] flex justify-center items-center"><Loader2 className="animate-spin text-emerald-500 w-8 h-8"/></div>;
 

@@ -126,7 +126,6 @@ const BANKS = [
 // ==========================================
 function MainDashboard() {
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
-  // ✅ ADDED ERROR CATCHER FOR NETWORK SWITCH
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -158,8 +157,10 @@ function MainDashboard() {
   
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // ✅ NEW: Holds the details while Wagmi talks to the blockchain
+  const [pendingCryptoOrder, setPendingCryptoOrder] = useState<any>(null); 
 
-  // ✅ ADDED ERROR CATCHER FOR CONTRACT WRITES
   const { writeContract, data: txHash, isPending: isWriting, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -172,13 +173,12 @@ function MainDashboard() {
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setNotification({ message, type });
 
-  // ✅ NEW: SILENT ERROR TRAPPERS
   useEffect(() => {
       if (writeError) {
-          // Extracts the short, readable version of the Wagmi error (e.g. "Insufficient funds")
           const errorMsg = (writeError as any).shortMessage || writeError.message;
           showToast(errorMsg, 'error');
-          setTxType(null); // Reset the loading state
+          setTxType(null); 
+          setPendingCryptoOrder(null); 
       }
   }, [writeError]);
 
@@ -276,7 +276,6 @@ function MainDashboard() {
   const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
   
-  // ✅ FIX: Use strict useChainId hook
   const chainId = useChainId();
   const isWrongNetwork = authenticated && chainId !== PLASMA_CHAIN_ID;
 
@@ -322,39 +321,57 @@ function MainDashboard() {
       fetchDbOrders(); 
   };
 
-  // ✅ NEW: Auto-refresh the dashboard every 10 seconds in the background
   useEffect(() => {
       const intervalId = setInterval(() => {
           handleRefresh();
-      }, 5000); // 5000ms = 5 seconds
+      }, 5000); 
 
       return () => clearInterval(intervalId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ FIX: Force Wagmi to explicitly sign on Plasma
   useEffect(() => {
-    if (isSuccess) {
+    if (isSuccess && pendingCryptoOrder) {
         if (txType === 'approve') {
             showToast("Approved! Automatically securing your escrow...", 'success');
             setTxType('deposit'); 
             
-            const amountWei = parseUnits(amountInput, selectedAsset.decimals);
+            const amountWei = parseUnits(pendingCryptoOrder.amount, selectedAsset.decimals);
             writeContract({ 
-                chainId: PLASMA_CHAIN_ID, // Hard lock to Plasma
+                chainId: PLASMA_CHAIN_ID, 
                 address: CONTRACT_ADDRESS, 
                 abi: CONTRACT_ABI, 
                 functionName: 'createEscrow', 
-                args: [sellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei], 
+                args: [pendingCryptoOrder.sellerWallet as `0x${string}`, pendingCryptoOrder.tokenAddress as `0x${string}`, amountWei], 
                 value: BigInt(0) 
             });
         } else if (txType === 'deposit') {
-            showToast("Escrow Created Successfully!", 'success');
-            setSellerAddress(''); 
-            setAmountInput('');
-            setTxType(null); 
-            handleRefresh();
+            
+            // 🔥 THE FIX: Using seller_address to match your Supabase columns!
+            supabase.from('escrow_orders').insert([{
+                buyer_wallet_address: pendingCryptoOrder.buyerWallet,
+                seller_address: pendingCryptoOrder.sellerWallet, // <--- MATCHES DB PERFECTLY NOW
+                buyer_email: pendingCryptoOrder.buyerEmail,
+                seller_email: pendingCryptoOrder.sellerEmail,
+                amount: pendingCryptoOrder.amount,
+                status: 'accepted'
+            }]).then(({ error }) => {
+                if (error) console.error("Supabase Sync Error:", error);
+                
+                showToast("Escrow Created Successfully!", 'success');
+                setSellerAddress(''); 
+                setAmountInput('');
+                setTxType(null); 
+                setPendingCryptoOrder(null); 
+                handleRefresh();
+            });
         }
+    } else if (isSuccess && !pendingCryptoOrder && txType === 'deposit') {
+        showToast("Escrow Created Successfully!", 'success');
+        setSellerAddress(''); 
+        setAmountInput('');
+        setTxType(null); 
+        handleRefresh();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
@@ -473,7 +490,6 @@ function MainDashboard() {
     
     let finalSellerAddress = sellerAddress.trim();
 
-    // ✅ THE MAGIC EMAIL TRANSLATOR
     if (finalSellerAddress.includes('@')) {
         showToast("Resolving email to secure wallet...", 'info');
         try {
@@ -486,16 +502,25 @@ function MainDashboard() {
             
             if (!data.status) throw new Error(data.message);
             
-            finalSellerAddress = data.address; // Swap the email for the 0x address!
+            finalSellerAddress = data.address; 
             showToast(`Found wallet: ${finalSellerAddress.slice(0,6)}...${finalSellerAddress.slice(-4)}`, 'success');
         } catch (err: any) {
             showToast(err.message, 'error');
-            return; // Stop the transaction if we can't find the email
+            return; 
         }
     }
 
     if (!isAddress(finalSellerAddress)) { showToast("Invalid Wallet Address or Email", 'error'); return; }
     if (finalSellerAddress.toLowerCase() === userAddress?.toLowerCase()) { showToast("You cannot create an order with yourself.", 'error'); return; }
+
+    setPendingCryptoOrder({
+        buyerWallet: userAddress,
+        sellerWallet: finalSellerAddress,
+        buyerEmail: buyerEmail || null,
+        sellerEmail: sellerAddress.includes('@') ? sellerAddress.trim() : null,
+        amount: amountInput,
+        tokenAddress: selectedAsset.address
+    });
 
     try {
       const isNative = selectedAsset.symbol === 'XPL';
@@ -511,7 +536,6 @@ function MainDashboard() {
         }
       }
       setTxType('deposit'); 
-      // ✅ FIX: Force Wagmi to explicitly sign on Plasma
       writeContract({ 
           chainId: PLASMA_CHAIN_ID, 
           address: CONTRACT_ADDRESS, 
@@ -582,7 +606,6 @@ function MainDashboard() {
         </div>
       )}
 
-      {/* ✅ FIXED: Beautiful Blue UI for 'info' loading toasts! */}
       {notification && (
         <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border backdrop-blur-md max-w-sm ${notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : notification.type === 'info' ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-red-500/10 border-red-500/50 text-red-400'}`}>
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" /> : notification.type === 'info' ? <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
@@ -627,14 +650,12 @@ function MainDashboard() {
                         <button onClick={() => setIsTokenListOpen(!isTokenListOpen)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 flex justify-between items-center hover:border-slate-600 transition-all"><div className="flex items-center gap-2"><div className={`w-5 h-5 rounded-full ${selectedAsset.icon} flex items-center justify-center text-[8px]`}>{selectedAsset.symbol[0]}</div><span>{selectedAsset.symbol}</span></div><ChevronDown className="w-4 h-4 text-slate-500" /></button>
                         {isTokenListOpen && <div className="absolute top-full w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl z-20 overflow-hidden shadow-xl">{ASSETS.map(a => <div key={a.symbol} onClick={() => { setSelectedAsset(a); setIsTokenListOpen(false); }} className="p-3 hover:bg-slate-700 cursor-pointer flex gap-3"><div className={`w-6 h-6 rounded-full ${a.icon} flex items-center justify-center text-[10px]`}>{a.symbol[0]}</div>{a.name}</div>)}</div>}
                     </div>
-                    {/* ✅ UPDATED PLACEHOLDER */}
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS OR EMAIL</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x... or seller@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>{(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}</button>
                     </>
                 )}
 
-                {/* ✅ GATED FIAT FORM */}
                 {mode === 'fiat' && (
                     <>
                     {!hasEmailLinked ? (
