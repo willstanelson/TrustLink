@@ -3,12 +3,11 @@
 import { useState, useEffect, use } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { Loader2, ShieldCheck, CheckCircle2, XCircle, ArrowLeft, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Loader2, ShieldCheck, CheckCircle2, XCircle, ArrowLeft, AlertTriangle, Bitcoin, Banknote } from 'lucide-react';
 
 export default function VerificationCard({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
     
-    // ✅ NEXT.JS 15+ FIX: Unwrap the params Promise using React.use()
     const resolvedParams = use(params); 
     
     const [stats, setStats] = useState({ total: 0, successful: 0, lost: 0, score: 0 });
@@ -20,8 +19,6 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
     useEffect(() => {
         const fetchReputation = async () => {
             try {
-                // 🔥 THE FIX: Dynamically query using YOUR exact column names!
-                // (seller_address instead of seller_wallet_address)
                 const queryStr = isEmail 
                     ? `seller_email.eq.${decodedId},buyer_email.eq.${decodedId}`
                     : `seller_address.ilike.${decodedId},buyer_wallet_address.ilike.${decodedId}`;
@@ -38,23 +35,17 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
 
                 if (data && data.length > 0) {
                     const total = data.length;
-                    
-                    // Tally up the good transactions
                     const success = data.filter(order => 
                         ['success', 'completed', 'shipped', 'accepted'].includes(order.status?.toLowerCase())
                     ).length;
-
-                    // Tally up the bad/disputed transactions
                     const lost = data.filter(order => 
                         ['disputed', 'cancelled', 'failed'].includes(order.status?.toLowerCase())
                     ).length;
 
-                    // Calculate a real Trust Score percentage
                     let score = Math.round((success / total) * 100);
 
                     setStats({ total, successful: success, lost, score });
                 } else {
-                    // No history found at all
                     setStats({ total: 0, successful: 0, lost: 0, score: 0 });
                 }
             } catch (err) {
@@ -76,7 +67,6 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
             </button>
 
             <div className="w-full max-w-md bg-slate-800/50 border border-slate-700 rounded-3xl p-8 backdrop-blur-sm shadow-2xl text-center relative overflow-hidden">
-                {/* Visual Trust Indicator background glow */}
                 <div className={`absolute -top-20 -left-20 w-40 h-40 blur-[80px] rounded-full ${stats.total === 0 ? 'bg-slate-500/20' : stats.score >= 80 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}></div>
 
                 <div className="relative z-10">
@@ -87,7 +77,8 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
                     />
                     
                     <h2 className="text-xl font-mono font-bold text-white mb-1 truncate px-4">{decodedId}</h2>
-                    <p className="text-sm text-slate-400 mb-8">{isEmail ? "Fiat User" : "Crypto Wallet"}</p>
+                    {/* 🔥 FIX: Universal user label */}
+                    <p className="text-xs font-bold tracking-widest uppercase text-slate-400 mb-8">TrustLink Verified</p>
 
                     {stats.total === 0 ? (
                         <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-6 mb-8">
@@ -111,15 +102,22 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
                         </div>
                     )}
 
-                    <button 
-                        onClick={() => {
-                            const targetMode = isEmail ? 'fiat' : 'crypto';
-                            router.push(`/dashboard?seller=${encodeURIComponent(decodedId)}&autoMode=${targetMode}`);
-                        }} 
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 text-lg group"
-                    >
-                        Start Escrow <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </button>
+                    {/* 🔥 FIX: Two distinct buttons so they can choose Fiat or Crypto for this user */}
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={() => router.push(`/dashboard?seller=${encodeURIComponent(decodedId)}&autoMode=crypto`)} 
+                            className="flex-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
+                        >
+                            <Bitcoin className="w-4 h-4 text-emerald-400" /> Pay Crypto
+                        </button>
+                        <button 
+                            onClick={() => router.push(`/dashboard?seller=${encodeURIComponent(decodedId)}&autoMode=fiat`)} 
+                            className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
+                        >
+                            <Banknote className="w-4 h-4 text-white" /> Pay Fiat
+                        </button>
+                    </div>
+
                 </div>
             </div>
         </div>
