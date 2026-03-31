@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseClient'; 
+import { createClient } from '@supabase/supabase-js';
 
-// We bring the BANKS array to the backend to perform the reverse-lookup
+// ✅ Service role key — safe in backend routes, bypasses RLS
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
 const BANKS = [
     { code: '120001', name: '9mobile 9Payment Service Bank' },
     { code: '801', name: 'Abbey Mortgage Bank' },
@@ -95,9 +100,14 @@ const BANKS = [
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { orderId, releaseAmount, isPartial } = body;
+        const { orderId, releaseAmount } = body;
 
-        // 1. Fetch the exact order details
+        // --- Input validation ---
+        if (!orderId || !releaseAmount || isNaN(Number(releaseAmount)) || Number(releaseAmount) <= 0) {
+            return NextResponse.json({ status: false, message: "Invalid request parameters." }, { status: 400 });
+        }
+
+        // 1. Fetch the order
         const { data: order, error: dbError } = await supabase
             .from('escrow_orders')
             .select('*')
@@ -105,111 +115,182 @@ export async function POST(req: Request) {
             .single();
 
         if (dbError || !order) {
-            return NextResponse.json({ status: false, message: "Order not found in database" }, { status: 404 });
+            return NextResponse.json({ status: false, message: "Order not found in database." }, { status: 404 });
         }
 
-        // 2. REVERSE LOOKUP: Extract the Bank Name and Code from "Bank Name - 9999999999"
+        // 2. Idempotency check — prevent releases on completed orders
+        if (order.status.toUpperCase() === 'SUCCESS') {
+            return NextResponse.json({ status: false, message: "This order has already been fully released." }, { status: 400 });
+        }
+
+        if (order.release_in_progress) {
+            return NextResponse.json({ status: false, message: "A release is already in progress for this order. Please wait." }, { status: 409 });
+        }
+
+        // 3. Lock the order AND save pending_release_amount in one atomic update
+        // This is critical — the webhook needs pending_release_amount to roll back correctly on failure
+        const totalToRelease = Number(releaseAmount);
+
+        const { error: lockError } = await supabase
+            .from('escrow_orders')
+            .update({
+                release_in_progress: true,
+                pending_release_amount: totalToRelease  // ✅ Saved here so webhook can roll back
+            })
+            .eq('id', Number(orderId))
+            .eq('release_in_progress', false); // Only lock if not already locked (prevents race condition)
+
+        if (lockError) {
+            return NextResponse.json({ status: false, message: "Could not acquire release lock. Please try again." }, { status: 409 });
+        }
+
+        // Helper to release the lock on any error path
+        const releaseLock = async () => {
+            await supabase
+                .from('escrow_orders')
+                .update({ release_in_progress: false, pending_release_amount: 0 })
+                .eq('id', Number(orderId));
+        };
+
+        // 4. Parse and validate bank details
         const bankDetailsStr = order.seller_bank_details || "";
         const parts = bankDetailsStr.split(" - ");
-        
-        let bankName = "";
-        let accountNumber = "";
 
-        if (parts.length === 2) {
-            bankName = parts[0];
-            accountNumber = parts[1];
-        } else {
+        if (parts.length !== 2) {
+            await releaseLock();
             return NextResponse.json({ status: false, message: "Invalid bank details format in database." }, { status: 400 });
         }
 
+        const [bankName, accountNumber] = parts;
         const foundBank = BANKS.find(b => b.name === bankName);
-        const bankCode = foundBank ? foundBank.code : null;
 
-        if (!bankCode) {
+        if (!foundBank) {
+            await releaseLock();
             return NextResponse.json({ status: false, message: `Could not find Paystack code for bank: ${bankName}` }, { status: 400 });
         }
 
-        // 3. THE TRUSTLINK MONETIZATION ENGINE (2% Fee)
+        // 5. Amount calculations
         const totalAmount = Number(order.amount);
         const previouslyReleased = Number(order.released_amount || 0);
         const remainingBalance = totalAmount - previouslyReleased;
-        const totalToRelease = Number(releaseAmount);
 
         if (totalToRelease > remainingBalance) {
-            return NextResponse.json({ status: false, message: `Cannot release more than the locked balance (₦${remainingBalance}).` }, { status: 400 });
+            await releaseLock();
+            return NextResponse.json({
+                status: false,
+                message: `Cannot release more than the remaining balance (₦${remainingBalance.toLocaleString()}).`
+            }, { status: 400 });
         }
 
-        const trustLinkFee = totalToRelease * 0.02; // 2% cut for you
+        const trustLinkFee = totalToRelease * 0.02;
         const payoutAmount = totalToRelease - trustLinkFee;
 
-        // 4. Create a Transfer Recipient in Paystack
+        // 6. Create Paystack Transfer Recipient
         const recipientResponse = await fetch('https://api.paystack.co/transferrecipient', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: "nuban", name: order.seller_name || "TrustLink Seller", account_number: accountNumber, bank_code: bankCode })
+            headers: {
+                Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: "nuban",
+                name: order.seller_name,
+                account_number: accountNumber,
+                bank_code: foundBank.code
+            })
         });
 
         const recipientData = await recipientResponse.json();
-        
+
         if (!recipientData.status) {
-            console.warn("Paystack Recipient Creation Failed:", recipientData.message);
-        } else {
-            // 5. Fire the actual money transfer to the seller's bank
-            const transferResponse = await fetch('https://api.paystack.co/transfer', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    source: "balance", 
-                    amount: Math.round(payoutAmount * 100), 
-                    recipient: recipientData.data.recipient_code,
-                    reason: `TrustLink Escrow Release (Order NGN-${orderId})`
-                })
-            });
-            const transferData = await transferResponse.json();
-            if (!transferData.status) console.warn("Transfer Failed:", transferData.message);
+            await releaseLock();
+            return NextResponse.json({
+                status: false,
+                message: `Failed to create transfer recipient: ${recipientData.message}`
+            }, { status: 400 });
         }
 
-// 6. Update Supabase with the new running total
-        const newReleasedAmount = previouslyReleased + totalToRelease;
-        
-        let newStatus = order.status;
-        if (newReleasedAmount >= totalAmount) {
-            newStatus = 'success'; // Fully paid
-        } else if (order.status !== 'shipped') {
-            newStatus = 'partially_released'; // Partially paid, but not yet shipped
+        // 7. Initiate the transfer
+        const transferResponse = await fetch('https://api.paystack.co/transfer', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                source: "balance",
+                amount: Math.round(payoutAmount * 100), // Paystack expects kobo
+                recipient: recipientData.data.recipient_code,
+                reason: `TrustLink Escrow Release (Order NGN-${orderId})`
+            })
+        });
+
+        const transferData = await transferResponse.json();
+
+        // 8. Handle Paystack response
+        // 'pending' is valid — means OTP confirmation required for large transfers
+        const transferSucceeded = transferData.status &&
+            (transferData.data?.status === 'success' || transferData.data?.status === 'pending');
+
+        if (!transferSucceeded) {
+            await releaseLock();
+            return NextResponse.json({
+                status: false,
+                message: `Transfer failed: ${transferData.message || 'Unknown Paystack error'}`
+            }, { status: 400 });
         }
-        
+
+        // 9. Update Supabase ONLY after confirmed transfer success/pending
+        const newReleasedAmount = previouslyReleased + totalToRelease;
+        const newStatus = newReleasedAmount >= totalAmount ? 'success' : 'partially_released';
+
         const { error: updateError } = await supabase
             .from('escrow_orders')
-            .update({ status: newStatus, released_amount: newReleasedAmount })
+            .update({
+                status: newStatus,
+                released_amount: newReleasedAmount,
+                release_in_progress: false    // Unlock
+                // ✅ FIXED: We leave pending_release_amount untouched here for the webhook to clear!
+            })
             .eq('id', Number(orderId));
 
-        if (updateError) throw new Error(updateError.message);
+        if (updateError) {
+            // Transfer went through but DB failed — this needs immediate human attention
+            console.error("CRITICAL: Transfer succeeded but DB update failed for order", orderId, updateError);
+            return NextResponse.json({
+                status: false,
+                message: "Transfer was sent but we failed to update the order record. Please contact support immediately."
+            }, { status: 500 });
+        }
 
-        // --- NEW: REPUTATION ENGINE UPDATE ---
+        // 10. Reputation Engine — only on full completion
         if (newStatus === 'success') {
             const updateProfile = async (email: string) => {
                 if (!email) return;
                 const id = email.toLowerCase();
                 const { data } = await supabase.from('profiles').select('*').eq('id', id).single();
-                
+
                 if (data) {
                     await supabase.from('profiles').update({
                         total_orders: (data.total_orders || 0) + 1,
                         successful_orders: (data.successful_orders || 0) + 1
                     }).eq('id', id);
                 } else {
-                    await supabase.from('profiles').insert({ id: id, total_orders: 1, successful_orders: 1 });
+                    await supabase.from('profiles').insert({ id, total_orders: 1, successful_orders: 1 });
                 }
             };
-            await updateProfile(order.buyer_email);
-            await updateProfile(order.seller_email);
+
+            // Run both updates in parallel for speed
+            await Promise.all([
+                updateProfile(order.buyer_email),
+                updateProfile(order.seller_email)
+            ]);
         }
-        // -------------------------------------
-        
-        return NextResponse.json({ 
-            status: true, 
-            message: `Successfully released ₦${payoutAmount.toLocaleString()}. TrustLink collected a ₦${trustLinkFee.toLocaleString()} fee!` 
+
+        return NextResponse.json({
+            status: true,
+            message: `Successfully released ₦${payoutAmount.toLocaleString()}. TrustLink fee: ₦${trustLinkFee.toLocaleString()}.`,
+            transferStatus: transferData.data?.status // 'success' or 'pending'
         });
 
     } catch (error: any) {
