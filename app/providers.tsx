@@ -51,7 +51,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         appearance: { 
           theme: 'dark', 
           accentColor: '#10b981', // TrustLink Emerald
-          logo: 'https://trust-link-sooty.vercel.app/favicon.ico' 
+          logo: 'https://trustlink.com.ng/favicon.ico' 
         },
         walletConnectCloudProjectId: '836bc2231c157ce81b1030811a1512d5',
         embeddedWallets: {
