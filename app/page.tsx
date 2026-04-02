@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Lock, ShieldCheck, ArrowRight, Bitcoin, Banknote, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { Lock, ShieldCheck, ArrowRight, Banknote, MessageSquare, CheckCircle2 } from 'lucide-react';
 
 export default function LandingPage() {
   return (
@@ -26,7 +26,7 @@ export default function LandingPage() {
       <main className="relative z-10 flex flex-col items-center justify-center mt-24 px-4 max-w-5xl mx-auto text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/50 border border-slate-700 text-xs font-bold text-slate-300 mb-8 backdrop-blur-sm">
           <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
-          Crypto & Fiat Escrow is Live
+          100% Protected Transactions
         </div>
         
         <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight leading-[1.1] mb-6">
@@ -37,7 +37,7 @@ export default function LandingPage() {
         </h1>
         
         <p className="text-lg md:text-xl text-slate-400 max-w-2xl mb-10 leading-relaxed">
-          The ultimate peer-to-peer escrow platform. Securely lock your NGN or Crypto in a decentralized vault until both parties are 100% satisfied. 
+          Never worry about getting scammed online again. We hold the payment safely until both sides keep their promise, giving you total peace of mind for every single transaction.
         </p>
         
         <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
@@ -63,9 +63,9 @@ export default function LandingPage() {
             <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center mb-6 border border-blue-500/30">
               <Banknote className="w-6 h-6 text-blue-400" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Fiat & Crypto Native</h3>
+            <h3 className="text-xl font-bold mb-3">Pay Any Way You Want</h3>
             <p className="text-slate-400 leading-relaxed">
-              Whether you are paying via Nigerian bank transfer (NGN) or directly on the blockchain with ETH and USDC, we secure your funds.
+              Whether you prefer using standard bank transfers or other digital payment methods, our system seamlessly secures your money.
             </p>
           </div>
 
@@ -74,9 +74,9 @@ export default function LandingPage() {
             <div className="w-12 h-12 bg-emerald-500/20 rounded-2xl flex items-center justify-center mb-6 border border-emerald-500/30">
               <ShieldCheck className="w-6 h-6 text-emerald-400" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Zero-Trust Escrow</h3>
+            <h3 className="text-xl font-bold mb-3">Secure Middleman Vault</h3>
             <p className="text-slate-400 leading-relaxed">
-              Funds are locked in our secure infrastructure. The seller knows you have the money, and you know they can't touch it until they deliver.
+              Your money is held safely in the middle. The seller knows you have the funds, and you know they can't touch them until you receive exactly what you ordered.
             </p>
           </div>
 
@@ -85,7 +85,7 @@ export default function LandingPage() {
             <div className="w-12 h-12 bg-purple-500/20 rounded-2xl flex items-center justify-center mb-6 border border-purple-500/30">
               <MessageSquare className="w-6 h-6 text-purple-400" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Encrypted P2P Chat</h3>
+            <h3 className="text-xl font-bold mb-3">Private Trade Chat</h3>
             <p className="text-slate-400 leading-relaxed">
               Communicate directly with your buyer or seller inside the dashboard. All negotiations and details stay securely tied to the order.
             </p>
