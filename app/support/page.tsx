@@ -55,12 +55,12 @@ export default function SupportPage() {
                         
                         <div className="bg-slate-800/50 border border-slate-700 p-6 rounded-2xl">
                             <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><Lock className="w-5 h-5 text-emerald-400"/> What is TrustLink?</h3>
-                            <p className="text-slate-400 leading-relaxed">TrustLink is a secure escrow agent. We lock a buyer's funds (either Fiat NGN via Paystack or Crypto via Smart Contracts) and hold them safely until the seller delivers the agreed-upon goods or services. Once both parties are satisfied, the funds are released.</p>
+                            <p className="text-slate-400 leading-relaxed">TrustLink is a secure middleman. We lock a buyer's payment and hold it safely until the seller delivers the agreed-upon goods or services. Once both sides are satisfied, the money is released.</p>
                         </div>
 
                         <div className="bg-slate-800/50 border border-slate-700 p-6 rounded-2xl">
                             <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-yellow-500"/> How do Split/Partial Payments work?</h3>
-                            <p className="text-slate-400 leading-relaxed">Buyers can choose to release a portion of the locked funds before the final delivery (e.g., for material costs). <strong>Warning:</strong> Partial releases are final and irreversible. If you release 50% of the funds and the seller vanishes, TrustLink can only refund the remaining 50% locked in escrow.</p>
+                            <p className="text-slate-400 leading-relaxed">Buyers can choose to release a portion of the locked money before the final delivery (e.g., to cover material costs). <strong>Warning:</strong> Partial releases are final and irreversible. If you release 50% of the money and the seller vanishes, TrustLink can only refund the remaining 50% still locked in our vault.</p>
                         </div>
 
                         <div className="bg-slate-800/50 border border-slate-700 p-6 rounded-2xl">
@@ -74,16 +74,16 @@ export default function SupportPage() {
                 {activeTab === 'TOS' && (
                     <div className="space-y-8 animate-in fade-in duration-300 text-slate-300 leading-relaxed">
                         <h2 className="text-3xl font-extrabold text-white mb-2">Terms of Service</h2>
-                        <p className="text-sm text-slate-500 mb-8">Last Updated: March 2026</p>
+                        <p className="text-sm text-slate-500 mb-8">Last Updated: April 2026</p>
 
                         <section>
                             <h3 className="text-xl font-bold text-white mb-3">1. Neutral Escrow Agent</h3>
-                            <p>TrustLink acts strictly as a neutral, third-party escrow agent. We do not own, inspect, guarantee, or take possession of the physical or digital goods being transacted. Our sole responsibility is the secure custody of Fiat (NGN) or Cryptocurrency pending the mutual agreement of the Buyer and Seller, or the resolution of a dispute.</p>
+                            <p>TrustLink acts strictly as a neutral, third-party holding agent. We do not own, inspect, guarantee, or take possession of the physical or digital goods being transacted. Our sole responsibility is the secure custody of the payment pending the mutual agreement of the Buyer and Seller, or the resolution of a dispute.</p>
                         </section>
 
                         <section>
                             <h3 className="text-xl font-bold text-white mb-3">2. Milestone & Partial Releases</h3>
-                            <p>Buyers have the option to release portions of the locked escrow balance to the Seller prior to the completion of the transaction. <strong>The Buyer assumes all risk for partial releases.</strong> Once funds are released from the TrustLink Smart Contract or Fiat holding accounts, they cannot be recovered, clawed back, or refunded under any circumstances.</p>
+                            <p>Buyers have the option to release portions of the locked balance to the Seller prior to the completion of the transaction. <strong>The Buyer assumes all risk for partial releases.</strong> Once money is released from the TrustLink secure vault, it cannot be recovered, clawed back, or refunded under any circumstances.</p>
                         </section>
 
                         <section>
@@ -93,7 +93,7 @@ export default function SupportPage() {
 
                         <section>
                             <h3 className="text-xl font-bold text-white mb-3">4. Fraud & The Reputation System</h3>
-                            <p>TrustLink maintains a public Trust Score for all wallets and emails. If an Administrator determines that a user has acted maliciously, attempted to defraud another user, or collected a partial payment without intent to deliver, TrustLink reserves the right to issue a "Severe Strike." A Severe Strike permanently drops the user's public Trust Score to 0%, warning all future users of fraudulent activity.</p>
+                            <p>TrustLink maintains a public Trust Score for all users. If an Administrator determines that a user has acted maliciously, attempted to defraud another user, or collected a partial payment without intent to deliver, TrustLink reserves the right to issue a "Severe Strike." A Severe Strike permanently drops the user's public Trust Score to 0%, warning all future users of fraudulent activity.</p>
                         </section>
 
                         <section>
@@ -107,11 +107,11 @@ export default function SupportPage() {
                 {activeTab === 'PRIVACY' && (
                     <div className="space-y-8 animate-in fade-in duration-300 text-slate-300 leading-relaxed">
                         <h2 className="text-3xl font-extrabold text-white mb-2">Privacy Policy</h2>
-                        <p className="text-sm text-slate-500 mb-8">Last Updated: March 2026</p>
+                        <p className="text-sm text-slate-500 mb-8">Last Updated: April 2026</p>
 
                         <section>
                             <h3 className="text-xl font-bold text-white mb-3">Data Collection</h3>
-                            <p>We collect only the minimum data required to facilitate secure escrow transactions. This includes your email address, Web3 wallet address, and on-platform chat messages. For fiat transactions, bank account details are securely processed via Paystack and are not stored in plain text on our servers.</p>
+                            <p>We collect only the minimum data required to facilitate secure transactions. This includes your email address, account identifier, and on-platform chat messages. Bank details are securely processed via our licensed payment partners and are not stored in plain text on our servers.</p>
                         </section>
 
                         <section>
@@ -121,7 +121,7 @@ export default function SupportPage() {
 
                         <section>
                             <h3 className="text-xl font-bold text-white mb-3">Public Profiles</h3>
-                            <p>To ensure a safe ecosystem, your transaction statistics (Total Orders, Successful Orders, Disputes Lost) are public and tied to your wallet address or email. This data forms your public Trust Score.</p>
+                            <p>To ensure a safe ecosystem, your transaction statistics (Total Orders, Successful Orders, Disputes Lost) are public and tied to your account profile. This data forms your public Trust Score.</p>
                         </section>
                     </div>
                 )}
