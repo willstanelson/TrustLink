@@ -640,8 +640,8 @@ function MainDashboard() {
             <div className="flex flex-col gap-4">
                 
                 <div className="bg-slate-900/80 p-1 rounded-xl flex mb-2 border border-slate-700">
-                    <button onClick={() => setMode('crypto')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'crypto' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Bitcoin className="w-4 h-4" /> Crypto</button>
-                    <button onClick={() => setMode('fiat')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'fiat' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Banknote className="w-4 h-4" /> Fiat</button>
+                    <button onClick={() => setMode('crypto')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'crypto' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Bitcoin className="w-4 h-4" /> Cryptocurrency</button>
+                    <button onClick={() => setMode('fiat')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'fiat' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Banknote className="w-4 h-4" /> Bank Transfer</button>
                 </div>
 
                 {mode === 'crypto' && (
@@ -652,7 +652,7 @@ function MainDashboard() {
                     </div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">SELLER ADDRESS OR EMAIL</label><input value={sellerAddress} onChange={(e) => setSellerAddress(e.target.value)} placeholder="0x... or seller@email.com" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
                     <div><label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label><input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" /></div>
-                    <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>{(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Deposit Crypto")}</button>
+                    <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isWrongNetwork && (!sellerAddress || !amountInput))} className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isWrongNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>{(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isWrongNetwork ? "Switch to Plasma Network" : "Secure Cryptocurrency")}</button>
                     </>
                 )}
 
@@ -662,7 +662,7 @@ function MainDashboard() {
                         <div className="flex flex-col items-center justify-center p-6 bg-slate-900/50 border border-slate-700 rounded-2xl text-center gap-4 mt-2">
                             <div className="w-14 h-14 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center justify-center mb-2"><Mail className="w-6 h-6 text-blue-400" /></div>
                             <h3 className="text-lg font-bold text-white">Email Verification Required</h3>
-                            <p className="text-sm text-slate-400 leading-relaxed">To use Fiat (NGN) escrows, you must link an email address to your account. This ensures you receive payment receipts and secure dispute notifications.</p>
+                            <p className="text-sm text-slate-400 leading-relaxed">To use Bank Transfer escrows, you must link an email address to your account. This ensures you receive payment receipts and secure dispute notifications.</p>
                             <button onClick={linkEmail} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl mt-2 transition-all w-full flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">Link Email Address <ArrowRight className="w-4 h-4"/></button>
                         </div>
                     ) : (
@@ -687,7 +687,7 @@ function MainDashboard() {
                             </div>
                         </div>
                         <div><label className="text-xs text-slate-400 ml-1 font-bold">DESCRIPTION</label><textarea value={fiatDescription} onChange={(e) => setFiatDescription(e.target.value)} placeholder="What are you paying for?" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all h-24 resize-none" /></div>
-                        <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Create Fiat Escrow <ArrowRight className="w-4 h-4" /></button>
+                        <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">Secure Bank Transfer <ArrowRight className="w-4 h-4" /></button>
                         </>
                     )}
                     </>
@@ -704,7 +704,7 @@ function MainDashboard() {
                 </div>
                 
                 <div className="flex items-center gap-3 pb-3">
-                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">Showing {mode} Orders</span>
+                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">Showing {mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'} Orders</span>
                      <button onClick={handleRefresh} className="text-slate-500 hover:text-white"><RefreshCcw className="w-4 h-4" /></button>
                 </div>
             </div>
@@ -715,7 +715,7 @@ function MainDashboard() {
                 ))}
                 
                 {displayedOrders.length === 0 && (
-                    <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">No active <span className="capitalize">{mode}</span> orders found.</div>
+                    <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">No active <span className="capitalize">{mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'}</span> orders found.</div>
                 )}
             </div>
         </div>
