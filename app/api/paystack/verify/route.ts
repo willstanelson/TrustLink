@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -9,6 +10,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 function isValidReference(ref: unknown): ref is string {
   return typeof ref === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(ref);
@@ -20,12 +22,13 @@ export async function POST(request: Request) {
     const { reference } = body as Record<string, unknown>;
 
     if (!isValidReference(reference)) {
-      return NextResponse.json({ status: false, message: 'Invalid payment reference.' }, { status: 400 });
+      return NextResponse.json({ status: false, message: 'Invalid reference.' }, { status: 400 });
     }
 
+    // 🚀 We now fetch the seller_email so we can send the notification!
     const { data: existingOrder, error: fetchError } = await supabaseAdmin
       .from('escrow_orders')
-      .select('id, status, amount')
+      .select('id, status, amount, seller_email')
       .eq('paystack_ref', reference)
       .maybeSingle();
 
@@ -33,7 +36,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: false, message: 'Order not found.' }, { status: 404 });
     }
 
-    // Idempotency guard
     if (existingOrder.status !== 'awaiting_payment') {
       return NextResponse.json({
         status: true,
@@ -42,16 +44,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const paystackRes = await fetch(
-      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-      }
-    );
+    const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+    });
 
     const paystackData = await paystackRes.json();
-
     if (!paystackData?.data) {
       return NextResponse.json({ status: false, message: 'Invalid response from Paystack.' }, { status: 502 });
     }
@@ -60,34 +58,48 @@ export async function POST(request: Request) {
     const amountPaidInKobo = paystackData.data.amount ?? 0;
     const expectedAmountInKobo = Math.round(existingOrder.amount * 100);
 
-    // Guard against users manually changing the payment amount
     if (paystackStatus === 'success' && amountPaidInKobo < expectedAmountInKobo) {
-      return NextResponse.json({ status: false, message: 'Partial payment detected. Contact support.' }, { status: 402 });
+      return NextResponse.json({ status: false, message: 'Partial payment detected.' }, { status: 402 });
     }
 
+    // 🚀 THE HARMONY FIX: Paystack success means the funds are "secured"
     const statusMap: Record<string, string> = {
-      success: 'accepted',
+      success: 'secured', 
       failed: 'failed',
       abandoned: 'abandoned',
     };
 
     const newStatus = statusMap[paystackStatus];
 
-    if (!newStatus) {
-      return NextResponse.json({ status: false, message: `Unhandled payment status: ${paystackStatus}` });
-    }
+    if (!newStatus) return NextResponse.json({ status: false, message: `Unhandled status: ${paystackStatus}` });
 
     const { error: updateError } = await supabaseAdmin
       .from('escrow_orders')
-      .update({
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
       .eq('paystack_ref', reference)
       .eq('status', existingOrder.status);
 
-    if (updateError) {
-      return NextResponse.json({ status: false, message: 'Database update failed.' }, { status: 500 });
+    if (updateError) return NextResponse.json({ status: false, message: 'DB update failed.' }, { status: 500 });
+
+    // 🚀 BACKEND EMAIL TRIGGER
+    if (newStatus === 'secured' && existingOrder.seller_email) {
+        try {
+            await resend.emails.send({
+                from: 'TrustLink Updates <onboarding@resend.dev>', // Keep until domain is verified
+                to: [existingOrder.seller_email], 
+                subject: 'New Escrow Order Secured! 💰',
+                html: `
+                    <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; max-w: 500px;">
+                        <h2 style="color: #10b981;">TrustLink Alert</h2>
+                        <p style="color: #334155; font-size: 16px;">Great news! A buyer has securely locked <strong>₦${existingOrder.amount.toLocaleString()}</strong> in TrustLink.</p>
+                        <p style="color: #334155;">Please log in to your dashboard to <strong>Accept</strong> the order and begin the transaction.</p>
+                    </div>
+                `
+            });
+        } catch (emailErr) {
+            console.error('Failed to send email:', emailErr);
+            // We don't throw here; the order is still secured even if Resend Sandbox blocks the email.
+        }
     }
 
     return NextResponse.json({
@@ -96,7 +108,6 @@ export async function POST(request: Request) {
       data: { reference },
     });
   } catch (error: any) {
-    console.error('[Verify] Error:', error);
     return NextResponse.json({ status: false, message: error.message }, { status: 500 });
   }
 }

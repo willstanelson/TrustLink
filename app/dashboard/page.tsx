@@ -206,7 +206,7 @@ function MainDashboard() {
       }
   };
 
-  // 🚀 UPDATED: Paystack Verification & Seller Notification
+  // 🚀 UPDATED: Paystack Verification
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
@@ -218,24 +218,10 @@ function MainDashboard() {
             body: JSON.stringify({ reference: trxref })
         })
         .then(res => res.json())
-        .then(async data => {
+        .then(data => {
             if (data.status) {
                 setShowSuccessModal(true); 
-                
-                // Fetch the order from the DB using the Paystack reference to safely find the seller's email
-                const { data: orderData } = await supabase
-                    .from('escrow_orders')
-                    .select('seller_email, amount')
-                    .eq('paystack_ref', trxref)
-                    .single();
-
-                if (orderData && orderData.seller_email) {
-                    sendEmailNotification(
-                        orderData.seller_email, 
-                        'New Escrow Order Secured! 💰', 
-                        `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
-                    );
-                }
+                // Emails and DB updates are now completely handled by the secure backend!
             } else {
                 showToast("Payment was cancelled or failed.", "error");
             }
@@ -383,7 +369,7 @@ function MainDashboard() {
                 buyer_email: pendingCryptoOrder.buyerEmail,
                 seller_email: pendingCryptoOrder.sellerEmail,
                 amount: pendingCryptoOrder.amount,
-                status: 'accepted'
+                status: 'secured'
             }]).then(({ error }) => {
                 if (error) console.error("Supabase Sync Error:", error);
                 
