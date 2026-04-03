@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// God-Mode Admin Client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing required environment variables for Supabase.');
+  throw new Error('Missing environment variables for Supabase.');
 }
 
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
@@ -21,26 +20,20 @@ export async function POST(request: Request) {
     const { reference } = body as Record<string, unknown>;
 
     if (!isValidReference(reference)) {
-      return NextResponse.json(
-        { status: false, message: 'Invalid payment reference.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ status: false, message: 'Invalid payment reference.' }, { status: 400 });
     }
 
     const { data: existingOrder, error: fetchError } = await supabaseAdmin
       .from('escrow_orders')
-      .select('id, status, amount') 
+      .select('id, status, amount')
       .eq('paystack_ref', reference)
       .maybeSingle();
 
     if (fetchError || !existingOrder) {
-      return NextResponse.json(
-        { status: false, message: 'Order not found.' },
-        { status: 404 }
-      );
+      return NextResponse.json({ status: false, message: 'Order not found.' }, { status: 404 });
     }
 
-    // Idempotency check
+    // Idempotency guard
     if (existingOrder.status !== 'awaiting_payment') {
       return NextResponse.json({
         status: true,
@@ -60,30 +53,18 @@ export async function POST(request: Request) {
     const paystackData = await paystackRes.json();
 
     if (!paystackData?.data) {
-      console.error('[Verify] Malformed Paystack response:', paystackData);
-      return NextResponse.json(
-        { status: false, message: 'Invalid response from payment provider.' },
-        { status: 502 }
-      );
+      return NextResponse.json({ status: false, message: 'Invalid response from Paystack.' }, { status: 502 });
     }
 
     const paystackStatus: string = paystackData.data.status ?? 'unknown';
-
-    // Partial Payment Guard
-    const amountPaidInKobo: number = paystackData.data.amount ?? 0;
+    const amountPaidInKobo = paystackData.data.amount ?? 0;
     const expectedAmountInKobo = Math.round(existingOrder.amount * 100);
 
+    // Guard against users manually changing the payment amount
     if (paystackStatus === 'success' && amountPaidInKobo < expectedAmountInKobo) {
-      console.error(
-        `[Verify] Amount mismatch for ref ${reference}. Expected: ${expectedAmountInKobo}, Got: ${amountPaidInKobo}`
-      );
-      return NextResponse.json(
-        { status: false, message: 'Payment amount mismatch. Possible partial payment detected.' },
-        { status: 402 }
-      );
+      return NextResponse.json({ status: false, message: 'Partial payment detected. Contact support.' }, { status: 402 });
     }
 
-    // Maps Paystack 'success' to TrustLink 'accepted'
     const statusMap: Record<string, string> = {
       success: 'accepted',
       failed: 'failed',
@@ -93,11 +74,7 @@ export async function POST(request: Request) {
     const newStatus = statusMap[paystackStatus];
 
     if (!newStatus) {
-      console.warn(`[Verify] Unhandled Paystack status: ${paystackStatus} for ref ${reference}`);
-      return NextResponse.json({
-        status: false,
-        message: `Unhandled payment status: ${paystackStatus}`,
-      });
+      return NextResponse.json({ status: false, message: `Unhandled payment status: ${paystackStatus}` });
     }
 
     const { error: updateError } = await supabaseAdmin
@@ -110,11 +87,7 @@ export async function POST(request: Request) {
       .eq('status', existingOrder.status);
 
     if (updateError) {
-      console.error('[Verify] DB update error:', updateError);
-      return NextResponse.json(
-        { status: false, message: 'DB update failed.' },
-        { status: 500 }
-      );
+      return NextResponse.json({ status: false, message: 'Database update failed.' }, { status: 500 });
     }
 
     return NextResponse.json({

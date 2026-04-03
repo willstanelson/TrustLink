@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// God-Mode Admin Client for secure DB writes
+// 🚀 God-Mode Client: Bypasses all RLS restrictions to guarantee insertion
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -22,18 +22,12 @@ export async function POST(request: Request) {
     } = body;
 
     if (!amount || !email || !seller_email) {
-      return NextResponse.json(
-        { status: false, message: 'Missing required fields' },
-        { status: 400 }
-      );
+      return NextResponse.json({ status: false, message: 'Missing required fields' }, { status: 400 });
     }
 
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return NextResponse.json(
-        { status: false, message: 'Invalid amount.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ status: false, message: 'Invalid amount.' }, { status: 400 });
     }
 
     const amountInKobo = Math.round(parsedAmount * 100);
@@ -50,7 +44,6 @@ export async function POST(request: Request) {
         currency: 'NGN',
         channels: ['card', 'bank', 'ussd', 'bank_transfer'],
         callback_url: 'https://trustlink.com.ng/dashboard',
-        // RESTORED: This sends the seller details to your Paystack Dashboard
         metadata: {
             custom_fields: [
                 { display_name: "Seller Email", variable_name: "seller_email", value: seller_email },
@@ -66,7 +59,6 @@ export async function POST(request: Request) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Paystack initialization failed');
 
-    // RESTORED id: Date.now() to prevent null primary key crashes
     const { error: dbError } = await supabaseAdmin
       .from('escrow_orders')
       .insert([
@@ -74,23 +66,24 @@ export async function POST(request: Request) {
           id: Date.now(),
           seller_address: '0xFIAT0000000000000000000000000000000000',
           buyer_email: email,
-          buyer_wallet_address: buyer_wallet ?? null,
+          buyer_wallet_address: buyer_wallet || null,
           seller_email: seller_email,
-          seller_name: seller_name ?? null,
-          seller_bank: seller_bank ?? null,
-          seller_number: seller_number ?? null,
+          seller_name: seller_name || null,
+          seller_bank: seller_bank || null,
+          seller_number: seller_number || null,
           amount: parsedAmount,
           currency: 'NGN',
-          status: 'awaiting_payment', // Standardized lowercase
-          description: description ?? null,
+          status: 'awaiting_payment',
+          description: description || null,
           paystack_ref: data.data.reference,
         },
       ]);
 
+    // 🚀 EXPLICIT ERROR REPORTING: If this fails, it will tell you EXACTLY why.
     if (dbError) {
       console.error('[Initiate] DB Error:', dbError);
       return NextResponse.json(
-        { status: false, message: 'Database Error: Could not secure order ledger.' },
+        { status: false, message: `Database Error: ${dbError.message}` },
         { status: 500 }
       );
     }
