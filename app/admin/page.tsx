@@ -2,12 +2,6 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AdminPage.tsx  –  TrustLink Admin Terminal
-//
-// Security model:
-//   • No admin wallets/emails exist in this file or anywhere client-side.
-//   • Authorization is verified server-side on every request via /api/admin/action.
-//   • All Supabase mutations go through that authenticated API route.
-//   • Reads use the anon key; protect them further with Supabase RLS policies.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -30,6 +24,16 @@ import Link from 'next/link';
 const PLASMA_CHAIN_ID  = 9746;
 const ZERO_ADDRESS     = '0x0000000000000000000000000000000000000000';
 const ADMIN_API        = '/api/admin/action';
+
+// ─────────────────────────────────────────────
+// Static Tailwind class map (fixes dynamic class purging in production)
+// ─────────────────────────────────────────────
+const TAB_STYLES = {
+  PAYOUTS:  { active: 'border-emerald-500 text-emerald-400', badge: 'bg-emerald-500 text-slate-900' },
+  DISPUTES: { active: 'border-red-500 text-red-400',         badge: 'bg-red-500 text-white'         },
+  HISTORY:  { active: 'border-slate-400 text-slate-400',     badge: 'bg-slate-500 text-white'       },
+  CRYPTO:   { active: 'border-blue-500 text-blue-400',       badge: 'bg-blue-500 text-slate-900'   },
+} as const;
 
 // ─────────────────────────────────────────────
 // Types
@@ -66,7 +70,7 @@ type AdminAction = {
   id: bigint;
   type: 'RELEASE' | 'REFUND' | 'NUKE' | 'DISPUTE';
   seller?: string;
-  rawAmount?: bigint;          // used for RELEASE so we pass the real locked amount
+  rawAmount?: bigint;
 };
 
 type ConfirmConfig = {
@@ -157,9 +161,6 @@ function ConfirmModal({ config, onClose }: { config: ConfirmConfig; onClose: () 
   );
 }
 
-// ─────────────────────────────────────────────
-// Copy button with inline feedback
-// ─────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -181,16 +182,12 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Fee Calculator Helper
-// ─────────────────────────────────────────────
 function calculateNetPayout(grossAmount: number) {
-  const platformFee = grossAmount * 0.01; // Your 1% cut
-  
-  // Paystack standard NGN fee: 1.5% + 100 NGN (100 NGN waived if under 2500)
+  const platformFee = grossAmount * 0.01;
+
   let paystackFee = grossAmount * 0.015;
   if (grossAmount >= 2500) paystackFee += 100;
-  if (paystackFee > 2000) paystackFee = 2000; // Paystack fee is capped at 2000 NGN
+  if (paystackFee > 2000) paystackFee = 2000;
 
   const netPayout = grossAmount - platformFee - paystackFee;
   return { netPayout, platformFee, paystackFee };
@@ -206,24 +203,22 @@ export default function AdminPage() {
 
   const { toasts, dismiss, push } = useToast();
 
-  // Auth state – determined by the server, never by client-side wallet comparison
   const [authStatus, setAuthStatus] = useState<'loading' | 'authorized' | 'unauthorized'>('loading');
 
-  const [activeTab, setActiveTab] = useState<'PAYOUTS' | 'DISPUTES' | 'CRYPTO'>('PAYOUTS');
+  const [activeTab, setActiveTab] = useState<'PAYOUTS' | 'DISPUTES' | 'HISTORY' | 'CRYPTO'>('PAYOUTS');
 
   const [fiatDisputes, setFiatDisputes] = useState<FiatOrder[]>([]);
   const [fiatPayouts,  setFiatPayouts]  = useState<FiatOrder[]>([]);
+  const [fiatHistory,  setFiatHistory]  = useState<FiatOrder[]>([]);
   const [isLoadingFiat, setIsLoadingFiat] = useState(false);
   const [busyOrderId,   setBusyOrderId]   = useState<number | null>(null);
 
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
   const [adminAction,   setAdminAction]   = useState<AdminAction | null>(null);
 
-  // ── Wagmi ─────────────────────────────────────────────────────────────────
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // ── Authenticated fetch helper ────────────────────────────────────────────
   const adminFetch = useCallback(
     async (body: object): Promise<Response> => {
       const token = await getAccessToken();
@@ -239,7 +234,6 @@ export default function AdminPage() {
     [getAccessToken],
   );
 
-  // ── Server-side auth verification on mount ────────────────────────────────
   useEffect(() => {
     if (!ready) return;
     if (!authenticated) { setAuthStatus('unauthorized'); return; }
@@ -262,10 +256,11 @@ export default function AdminPage() {
   // ── Fiat data fetch ───────────────────────────────────────────────────────
   const fetchFiatOrders = useCallback(async () => {
     setIsLoadingFiat(true);
+
     const { data, error } = await supabase
       .from('escrow_orders')
       .select('*')
-      .in('status', ['disputed', 'processing_payout'])
+      .neq('status', 'AWAITING_PAYMENT')
       .order('created_at', { ascending: false });
 
     setIsLoadingFiat(false);
@@ -275,15 +270,16 @@ export default function AdminPage() {
       return;
     }
 
-    setFiatDisputes((data as FiatOrder[]).filter((o) => o.status === 'disputed'));
-    setFiatPayouts((data as FiatOrder[]).filter((o) => o.status === 'processing_payout'));
+    const allOrders = data as FiatOrder[];
+    setFiatDisputes(allOrders.filter((o) => o.status === 'disputed'));
+    setFiatPayouts(allOrders.filter((o) => o.status === 'processing_payout'));
+    setFiatHistory(allOrders);
   }, [push]);
 
   useEffect(() => {
     if (authStatus === 'authorized') fetchFiatOrders();
   }, [authStatus, fetchFiatOrders]);
 
-  // ── Crypto contracts ──────────────────────────────────────────────────────
   const { data: totalEscrows } = useReadContract({
     abi: CONTRACT_ABI, address: CONTRACT_ADDRESS, functionName: 'escrowCount',
     query: { enabled: authStatus === 'authorized', refetchInterval: 5000 },
@@ -303,7 +299,6 @@ export default function AdminPage() {
     query: { enabled: authStatus === 'authorized', refetchInterval: 10000 },
   });
 
-  // ── Wagmi error ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (writeError) {
       push('error', (writeError as any).shortMessage ?? writeError.message);
@@ -311,11 +306,10 @@ export default function AdminPage() {
     }
   }, [writeError, push]);
 
-  // ── On-chain success ──────────────────────────────────────────────────────
+  // FIX: adminAction added to dependency array to prevent stale closure
   useEffect(() => {
     if (!isSuccess) return;
 
-    // If action was NUKE, we still need to hit the server to update the trust score
     if (adminAction?.type === 'NUKE' && adminAction.seller) {
       adminFetch({ actionType: 'NUKE_CRYPTO_SELLER', sellerAddress: adminAction.seller })
         .catch((err) => console.error('Nuke profile update failed:', err));
@@ -326,7 +320,6 @@ export default function AdminPage() {
     refetchCrypto();
   }, [isSuccess, adminAction, adminFetch, refetchCrypto, push]);
 
-  // ── Fiat: resolve dispute ─────────────────────────────────────────────────
   const resolveDispute = async (
     order: FiatOrder,
     resolution: 'completed' | 'refunded',
@@ -381,7 +374,6 @@ export default function AdminPage() {
     });
   };
 
-  // ── Fiat: complete payout ─────────────────────────────────────────────────
   const completePayout = async (order: FiatOrder) => {
     setBusyOrderId(order.id);
     try {
@@ -401,7 +393,7 @@ export default function AdminPage() {
   const confirmCompletePayout = (order: FiatOrder) => {
     const grossAmount = Number(order.released_amount ?? order.amount);
     const { netPayout } = calculateNetPayout(grossAmount);
-    const formattedNet = netPayout.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const formattedNet = netPayout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     setConfirmConfig({
       title: 'Confirm Bank Transfer',
@@ -412,16 +404,14 @@ export default function AdminPage() {
     });
   };
 
-  // ── Crypto: execute admin action ──────────────────────────────────────────
   const executeCryptoAction = () => {
     if (!adminAction) return;
 
     const functionName =
       adminAction.type === 'RELEASE'  ? 'releaseMilestone' :
       adminAction.type === 'DISPUTE'  ? 'raiseDispute'     :
-      'cancelOrder'; // REFUND + NUKE both call cancelOrder on-chain
+      'cancelOrder';
 
-    // RELEASE must pass the actual locked amount — not a placeholder
     const args: [bigint, bigint] | [bigint] =
       adminAction.type === 'RELEASE' && adminAction.rawAmount !== undefined
         ? [adminAction.id, adminAction.rawAmount]
@@ -436,7 +426,6 @@ export default function AdminPage() {
     });
   };
 
-  // ── Parse crypto orders ───────────────────────────────────────────────────
   const cryptoOrders: CryptoOrder[] = useMemo(() => {
     if (!escrowsData) return [];
     return escrowsData.flatMap((result, index) => {
@@ -463,7 +452,14 @@ export default function AdminPage() {
     });
   }, [escrowsData, indexesToFetch]);
 
-  // ── Render guards ─────────────────────────────────────────────────────────
+  // FIX: Tab config moved below cryptoOrders useMemo so badge count is accurate
+  const TABS = [
+    { key: 'PAYOUTS'  as const, label: 'Pending Payouts', count: fiatPayouts.length  },
+    { key: 'DISPUTES' as const, label: 'Fiat Disputes',   count: fiatDisputes.length },
+    { key: 'HISTORY'  as const, label: 'Fiat History',    count: fiatHistory.length  },
+    { key: 'CRYPTO'   as const, label: 'Crypto Orders',   count: cryptoOrders.length },
+  ];
+
   if (authStatus === 'loading' || isConnecting || !ready) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
@@ -494,11 +490,9 @@ export default function AdminPage() {
     );
   }
 
-  // ── Admin UI ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0f172a] text-white pb-20 font-sans">
 
-      {/* NAV */}
       <nav className="border-b border-emerald-500/20 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -517,30 +511,29 @@ export default function AdminPage() {
 
       <main className="max-w-7xl mx-auto px-4 mt-8">
 
-        {/* TABS */}
+        {/* FIX: Tabs now use static TAB_STYLES map — no dynamic Tailwind class strings */}
         <div className="flex flex-wrap gap-6 border-b border-slate-800 mb-6 mt-8">
-          {([
-            { key: 'PAYOUTS',  label: 'Pending Payouts', count: fiatPayouts.length,  color: 'emerald' },
-            { key: 'DISPUTES', label: 'Fiat Disputes',   count: fiatDisputes.length, color: 'red'     },
-            { key: 'CRYPTO',   label: 'Crypto Orders',   count: 0,                   color: 'blue'    },
-          ] as const).map(({ key, label, count: badgeCount, color }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`text-lg font-bold pb-4 border-b-2 transition-all flex items-center gap-2 ${
-                activeTab === key
-                  ? `border-${color}-500 text-${color}-400`
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
-              }`}
-            >
-              {label}
-              {badgeCount > 0 && (
-                <span className={`bg-${color}-500 ${color === 'red' ? 'text-white' : 'text-slate-900'} text-xs px-2 py-0.5 rounded-full`}>
-                  {badgeCount}
-                </span>
-              )}
-            </button>
-          ))}
+          {TABS.map(({ key, label, count: badgeCount }) => {
+            const styles = TAB_STYLES[key];
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`text-lg font-bold pb-4 border-b-2 transition-all flex items-center gap-2 ${
+                  activeTab === key
+                    ? styles.active
+                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {label}
+                {badgeCount > 0 && (
+                  <span className={`${styles.badge} text-xs px-2 py-0.5 rounded-full`}>
+                    {badgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* ── TAB: PAYOUTS ──────────────────────────────────────────────── */}
@@ -562,38 +555,38 @@ export default function AdminPage() {
                 return (
                   <div key={order.id} className="bg-slate-800 border border-emerald-500/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(16,185,129,0.1)]">
                     <div className="bg-emerald-900/20 border-b border-emerald-500/20 px-6 py-4 flex justify-between items-center">
-                      <span className="font-mono text-sm text-emerald-400">Order #${order.id}</span>
+                      {/* FIX: was `Order #${order.id}` (literal string) — now correctly interpolated */}
+                      <span className="font-mono text-sm text-emerald-400">Order #{order.id}</span>
                       <span className="bg-emerald-500 text-slate-900 text-xs font-black uppercase px-3 py-1 rounded-full">
                         Awaiting Transfer
                       </span>
                     </div>
 
                     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      {/* Amount */}
                       <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 flex flex-col justify-center">
                         <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Net Amount to Transfer</p>
-                        
+
                         {(() => {
                           const { netPayout, platformFee, paystackFee } = calculateNetPayout(amountToTransfer);
                           return (
                             <>
                               <p className="text-4xl font-black text-emerald-400">
-                                ₦{netPayout.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                ₦{netPayout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </p>
-                              
+
                               <div className="mt-3 pt-3 border-t border-slate-800 space-y-1">
-                                  <div className="flex justify-between text-xs text-slate-500">
-                                      <span>Gross Deposit:</span>
-                                      <span>₦{amountToTransfer.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between text-xs text-red-400/70">
-                                      <span>Paystack Fee:</span>
-                                      <span>- ₦{paystackFee.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                  </div>
-                                  <div className="flex justify-between text-xs text-blue-400/70">
-                                      <span>TrustLink Fee (1%):</span>
-                                      <span>- ₦{platformFee.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                  </div>
+                                <div className="flex justify-between text-xs text-slate-500">
+                                  <span>Gross Deposit:</span>
+                                  <span>₦{amountToTransfer.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-red-400/70">
+                                  <span>Paystack Fee:</span>
+                                  <span>- ₦{paystackFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-blue-400/70">
+                                  <span>TrustLink Fee (1%):</span>
+                                  <span>- ₦{platformFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
                               </div>
                             </>
                           );
@@ -606,7 +599,6 @@ export default function AdminPage() {
                         )}
                       </div>
 
-                      {/* Bank details */}
                       <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
                         <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-3 border-b border-slate-800 pb-2">
                           Seller Bank Details
@@ -630,7 +622,6 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      {/* Action */}
                       <div className="flex flex-col justify-center gap-3">
                         <p className="text-sm text-slate-400 text-center px-4 leading-relaxed">
                           Transfer the exact amount, then confirm below to complete the escrow.
@@ -725,6 +716,55 @@ export default function AdminPage() {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {/* ── TAB: HISTORY ──────────────────────────────────────────────── */}
+        {activeTab === 'HISTORY' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto shadow-xl animate-in fade-in">
+            <table className="w-full text-left min-w-[800px]">
+              <thead className="bg-slate-950 text-slate-400 text-xs uppercase font-bold border-b border-slate-800">
+                <tr>
+                  <th className="p-4">Order ID</th>
+                  <th className="p-4">Amount</th>
+                  <th className="p-4">Buyer</th>
+                  <th className="p-4">Seller</th>
+                  <th className="p-4">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {fiatHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-10 text-center text-slate-500 italic">
+                      No fiat history found.
+                    </td>
+                  </tr>
+                ) : (
+                  fiatHistory.map((order) => (
+                    <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
+                      <td className="p-4 font-mono text-slate-300">#{order.id}</td>
+                      <td className="p-4 font-bold text-white">₦{Number(order.amount).toLocaleString()}</td>
+                      <td className="p-4 text-[10px] font-mono text-blue-400 break-all">
+                        {order.buyer_email ?? order.buyer_wallet_address ?? '—'}
+                      </td>
+                      <td className="p-4 text-[10px] font-mono text-emerald-400 break-all">
+                        {order.seller_email ?? order.seller_name ?? '—'}
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${
+                          ['completed', 'success'].includes(order.status) ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                          order.status === 'disputed'                     ? 'bg-red-500/10 text-red-400 border border-red-500/30' :
+                          order.status === 'cancelled' || order.status === 'refunded' ? 'bg-slate-800 text-slate-400 border border-slate-700' :
+                          'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                        }`}>
+                          {order.status.replace('_', ' ')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         )}
 
