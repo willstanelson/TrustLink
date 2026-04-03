@@ -5,6 +5,7 @@ import {
   CheckCheck, Loader2, BellRing, CheckCircle, XCircle, Info
 } from 'lucide-react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { usePrivy } from '@privy-io/react-auth'; // 🚀 NEW: Import Privy
 import { supabase } from '../lib/supabaseClient'; 
 import dynamic from 'next/dynamic'; 
 import TrustBadge from './TrustBadge';
@@ -141,13 +142,11 @@ type Order = {
 // Helpers
 // ─────────────────────────────────────────────
 
-/** Strip display formatting and return a validated positive number, or null. */
 function parseDisplayAmount(raw: string): number | null {
   const n = Number(String(raw).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Strip display formatting and return a validated order ID, or null. */
 function parseOrderId(raw: string): number | null {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -168,15 +167,14 @@ export default function OrderCard({
   onUpdate: () => void;
 }) {
   const { toasts, dismiss, push } = useToast();
+  const { getAccessToken } = usePrivy(); // 🚀 NEW: Grab the Privy token engine
 
   const [showChat, setShowChat] = useState(false);
   const [releaseAmount, setReleaseAmount] = useState('');
   const [hasUnread, setHasUnread] = useState(false); 
   const [isDbLoading, setIsDbLoading] = useState(false);
 
-  // Generic confirm modal state
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
-  // Split-release warning (kept separate because it has unique layout)
   const [showSplitWarning, setShowSplitWarning] = useState(false);
   const [pendingReleaseAmount, setPendingReleaseAmount] = useState('');
   
@@ -215,6 +213,24 @@ export default function OrderCard({
     }
   }, []);
 
+  // ── Backend API Helper ─────────────────────────────────────────────────────
+  // 🚀 NEW: All database mutations route through our secure backend
+  const executeUserAction = useCallback(async (actionType: string, payload = {}) => {
+    const token = await getAccessToken();
+    const res = await fetch('/api/user/action', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ actionType, orderId, payload })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
+    return data;
+  }, [getAccessToken, orderId]);
+
   // ── Wagmi error handling ───────────────────────────────────────────────────
   useEffect(() => {
     if (writeError) {
@@ -245,12 +261,11 @@ export default function OrderCard({
     }
 
     setTimeout(onUpdate, 2000);
-  // onUpdate is intentionally stable (passed from parent); include all used values.
   }, [isSuccess, isFiat, order.buyer, order.seller, displayId, sendNotification, push, onUpdate]);
 
   const isBusy = isPending || isConfirming || isDbLoading;
 
-  // ── Chat unread tracking ───────────────────────────────────────────────────
+  // ── Chat unread tracking (Safe to keep as direct Supabase Read) ─────────────
   useEffect(() => {
     chatOpenRef.current = showChat;
     if (showChat) localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
@@ -309,40 +324,32 @@ export default function OrderCard({
     localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
   };
 
-  // ── DB helper ──────────────────────────────────────────────────────────────
-  const upsertOrder = useCallback(async (status: string) => {
-    if (!orderId) { push('error', 'Invalid order ID.'); return false; }
-    const payload: Record<string, unknown> = { id: orderId, seller_address: userAddress, status };
-    if (!isFiat) {
-      payload.buyer_wallet_address = order.buyer;
-      payload.amount   = parseDisplayAmount(order.formattedTotal) ?? 0;
-      payload.currency = order.token_symbol;
-    }
-    const { error } = await supabase.from('escrow_orders').upsert(payload);
-    if (error) { push('error', `Database error: ${error.message}`); return false; }
-    return true;
-  }, [orderId, userAddress, isFiat, order.buyer, order.formattedTotal, order.token_symbol, push]);
-
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleAccept = async () => {
     setIsDbLoading(true);
-    const ok = await upsertOrder('accepted');
-    setIsDbLoading(false);
-    if (ok) {
+    try {
+      await executeUserAction('ACCEPT');
       sendNotification(order.buyer, 'Order Accepted!', `The seller has accepted your order (${displayId}). They are preparing your item/service.`);
       push('success', 'Order accepted.');
       onUpdate();
+    } catch (error: any) {
+      push('error', `Accept failed: ${error.message}`);
+    } finally {
+      setIsDbLoading(false);
     }
   };
 
   const handleMarkShipped = async () => {
     setIsDbLoading(true);
-    const ok = await upsertOrder('shipped');
-    setIsDbLoading(false);
-    if (ok) {
+    try {
+      await executeUserAction('SHIP');
       sendNotification(order.buyer, 'Order Shipped!', `The seller has marked your order (${displayId}) as shipped/delivered. Please verify and release the funds when you are satisfied.`);
       push('success', 'Order marked as shipped.');
       onUpdate();
+    } catch (error: any) {
+      push('error', `Shipping update failed: ${error.message}`);
+    } finally {
+      setIsDbLoading(false);
     }
   };
 
@@ -380,12 +387,7 @@ export default function OrderCard({
     if (isFiat) {
       setIsDbLoading(true);
       try {
-        const { error } = await supabase
-          .from('escrow_orders')
-          .update({ status: 'processing_payout', released_amount: releaseNum })
-          .eq('id', orderId);
-
-        if (error) throw error;
+        await executeUserAction('FIAT_RELEASE', { releaseAmount: releaseNum });
 
         push('success', `${releaseNum} NGN released. Funds will settle in the seller's bank account within 24 hours.`);
 
@@ -406,9 +408,9 @@ export default function OrderCard({
         }
 
         onUpdate();
-      } catch (err) {
+      } catch (err: any) {
         console.error('Fiat release error:', err);
-        push('error', 'Network error while processing release. Please try again.');
+        push('error', `Network error while processing release: ${err.message}`);
       } finally {
         setIsDbLoading(false);
         setReleaseAmount('');
@@ -447,12 +449,16 @@ export default function OrderCard({
     if (isFiat) {
       if (!orderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
-      const { error } = await supabase.from('escrow_orders').update({ status: 'disputed' }).eq('id', orderId);
-      setIsDbLoading(false);
-      if (error) { push('error', `Database error: ${error.message}`); return; }
-      sendNotification(peerAddress, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
-      push('warning', 'Dispute raised. An admin will review shortly.');
-      onUpdate();
+      try {
+        await executeUserAction('DISPUTE');
+        sendNotification(peerAddress, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
+        push('warning', 'Dispute raised. An admin will review shortly.');
+        onUpdate();
+      } catch (err: any) {
+        push('error', `Failed to raise dispute: ${err.message}`);
+      } finally {
+        setIsDbLoading(false);
+      }
     } else {
       writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'raiseDispute', args: [BigInt(orderId ?? 0)] });
     }
@@ -481,11 +487,15 @@ export default function OrderCard({
     if (isFiat) {
       if (!orderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
-      const { error } = await supabase.from('escrow_orders').update({ status: 'cancelled' }).eq('id', orderId);
-      setIsDbLoading(false);
-      if (error) { push('error', `Database error: ${error.message}`); return; }
-      push('info', 'Order cancelled.');
-      onUpdate();
+      try {
+        await executeUserAction('CANCEL');
+        push('info', 'Order cancelled.');
+        onUpdate();
+      } catch (err: any) {
+        push('error', `Failed to cancel order: ${err.message}`);
+      } finally {
+        setIsDbLoading(false);
+      }
     } else {
       writeContract({ chainId: PLASMA_CHAIN_ID, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'cancelOrder', args: [BigInt(orderId ?? 0)] });
     }
@@ -632,7 +642,7 @@ export default function OrderCard({
         />
       </div>
 
-      {/* ── Generic confirm modal ────────────────────────────────────────── */}
+      {/* ── Generic confirm modal ──────────────────────────────────────────── */}
       {confirmConfig && (
         <ConfirmModal config={confirmConfig} onClose={() => setConfirmConfig(null)} />
       )}
