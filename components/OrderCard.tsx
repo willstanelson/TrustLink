@@ -536,16 +536,16 @@ export default function OrderCard({
           <span>Paid: {order.percentPaid}%</span>
           <span>Locked: {100 - order.percentPaid}%</span>
         </div>
-
-        {/* 🚀 NEW: FIAT 24-HOUR INFO BANNER */}
-        {isFiat && !isTerminal && (
-          <div className="flex items-start gap-2 bg-blue-900/10 border border-blue-500/20 p-3 rounded-lg mb-6">
-            <Clock className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-slate-400 leading-relaxed">
-              <strong className="text-blue-400">Fiat Payouts:</strong> Once the buyer releases the funds, the payout will be securely processed and settled into the seller's bank account <strong className="text-slate-300">within 24 hours</strong>.
-            </p>
-          </div>
-        )}
+      
+      {/* 🚀 UPDATED: FIAT 24-HOUR INFO BANNER */}
+      {isFiat && !isTerminal && (
+        <div className="flex items-start gap-2 bg-blue-900/10 border border-blue-500/20 p-3 rounded-lg mb-6">
+          <Clock className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-slate-400 leading-relaxed">
+            <strong className="text-blue-400">Fiat Settlement:</strong> Due to standard bank processing times, fiat payouts can only be completed a minimum of <strong className="text-slate-300">24 hours after the order is created</strong>, even if the buyer releases the funds earlier.
+          </p>
+        </div>
+      )}
 
         {/* COUNTERPARTY */}
         <div className="flex items-center gap-2 mb-6 text-xs text-slate-400">

@@ -45,6 +45,8 @@ export async function POST(request: Request) {
 
     if (!res.ok) throw new Error(data.message || "Paystack initialization failed");
 
+    // 🚀 UPDATED: Removed the concatenated 'seller_bank_details' 
+    // and explicitly map the variables to the individual DB columns
     const { error: dbError } = await supabase
         .from('escrow_orders')
         .insert([
@@ -55,10 +57,11 @@ export async function POST(request: Request) {
                 buyer_wallet_address: buyer_wallet,
                 seller_email: seller_email, 
                 seller_name: seller_name,
-                seller_bank_details: `${seller_bank} - ${seller_number}`,
+                seller_bank: seller_bank,       // Directly mapped
+                seller_number: seller_number,   // Directly mapped
                 amount: parseFloat(amount),
                 currency: 'NGN',
-                status: 'AWAITING_PAYMENT', // ✅ FIX: Mark as waiting instead of assuming success
+                status: 'AWAITING_PAYMENT',
                 description: description,
                 paystack_ref: data.data.reference
             }

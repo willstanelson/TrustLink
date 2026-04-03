@@ -182,6 +182,21 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ─────────────────────────────────────────────
+// Fee Calculator Helper
+// ─────────────────────────────────────────────
+function calculateNetPayout(grossAmount: number) {
+  const platformFee = grossAmount * 0.01; // Your 1% cut
+  
+  // Paystack standard NGN fee: 1.5% + 100 NGN (100 NGN waived if under 2500)
+  let paystackFee = grossAmount * 0.015;
+  if (grossAmount >= 2500) paystackFee += 100;
+  if (paystackFee > 2000) paystackFee = 2000; // Paystack fee is capped at 2000 NGN
+
+  const netPayout = grossAmount - platformFee - paystackFee;
+  return { netPayout, platformFee, paystackFee };
+}
+
+// ─────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────
 export default function AdminPage() {
@@ -384,10 +399,13 @@ export default function AdminPage() {
   };
 
   const confirmCompletePayout = (order: FiatOrder) => {
-    const amount = Number(order.released_amount ?? order.amount).toLocaleString();
+    const grossAmount = Number(order.released_amount ?? order.amount);
+    const { netPayout } = calculateNetPayout(grossAmount);
+    const formattedNet = netPayout.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
     setConfirmConfig({
       title: 'Confirm Bank Transfer',
-      body: `Have you successfully transferred ₦${amount} to the seller's account? This will mark the escrow as complete.`,
+      body: `Have you successfully transferred ₦${formattedNet} to the seller's account? This will mark the escrow as complete.`,
       confirmLabel: 'Yes, Transfer Complete',
       confirmClass: 'bg-emerald-600 hover:bg-emerald-500',
       onConfirm: () => completePayout(order),
@@ -553,10 +571,36 @@ export default function AdminPage() {
                     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
                       {/* Amount */}
                       <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 flex flex-col justify-center">
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Amount to Transfer</p>
-                        <p className="text-4xl font-black text-white">₦{amountToTransfer.toLocaleString()}</p>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Net Amount to Transfer</p>
+                        
+                        {(() => {
+                          const { netPayout, platformFee, paystackFee } = calculateNetPayout(amountToTransfer);
+                          return (
+                            <>
+                              <p className="text-4xl font-black text-emerald-400">
+                                ₦{netPayout.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                              </p>
+                              
+                              <div className="mt-3 pt-3 border-t border-slate-800 space-y-1">
+                                  <div className="flex justify-between text-xs text-slate-500">
+                                      <span>Gross Deposit:</span>
+                                      <span>₦{amountToTransfer.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-red-400/70">
+                                      <span>Paystack Fee:</span>
+                                      <span>- ₦{paystackFee.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-blue-400/70">
+                                      <span>TrustLink Fee (1%):</span>
+                                      <span>- ₦{platformFee.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                  </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+
                         {isPartial && (
-                          <p className="text-xs text-yellow-400 mt-2 font-bold flex items-center gap-1">
+                          <p className="text-xs text-yellow-400 mt-3 font-bold flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" /> Split Release (Partial Payout)
                           </p>
                         )}
