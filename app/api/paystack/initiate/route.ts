@@ -1,21 +1,42 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
+// God-Mode Admin Client for secure DB writes
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { amount, email, seller_email, seller_bank, seller_number, seller_name, description, buyer_wallet } = body;
+    const {
+      amount,
+      email,
+      seller_email,
+      seller_bank,
+      seller_number,
+      seller_name,
+      description,
+      buyer_wallet,
+    } = body;
 
     if (!amount || !email || !seller_email) {
-      return NextResponse.json({ status: false, message: 'Missing amount, buyer email, or seller email' }, { status: 400 });
+      return NextResponse.json(
+        { status: false, message: 'Missing required fields' },
+        { status: 400 }
+      );
     }
 
-    const amountInKobo = parseFloat(amount) * 100;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return NextResponse.json(
+        { status: false, message: 'Invalid amount.' },
+        { status: 400 }
+      );
+    }
+
+    const amountInKobo = Math.round(parsedAmount * 100);
 
     const res = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
@@ -28,6 +49,8 @@ export async function POST(request: Request) {
         amount: amountInKobo,
         currency: 'NGN',
         channels: ['card', 'bank', 'ussd', 'bank_transfer'],
+        callback_url: 'https://trustlink.com.ng/dashboard',
+        // RESTORED: This sends the seller details to your Paystack Dashboard
         metadata: {
             custom_fields: [
                 { display_name: "Seller Email", variable_name: "seller_email", value: seller_email },
@@ -36,41 +59,45 @@ export async function POST(request: Request) {
                 { display_name: "Seller Name", variable_name: "seller_name", value: seller_name },
                 { display_name: "Description", variable_name: "description", value: description }
             ]
-        },
-        callback_url: "https://trustlink.com.ng/dashboard"
+        }
       }),
     });
 
     const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Paystack initialization failed');
 
-    if (!res.ok) throw new Error(data.message || "Paystack initialization failed");
+    // RESTORED id: Date.now() to prevent null primary key crashes
+    const { error: dbError } = await supabaseAdmin
+      .from('escrow_orders')
+      .insert([
+        {
+          id: Date.now(),
+          seller_address: '0xFIAT0000000000000000000000000000000000',
+          buyer_email: email,
+          buyer_wallet_address: buyer_wallet ?? null,
+          seller_email: seller_email,
+          seller_name: seller_name ?? null,
+          seller_bank: seller_bank ?? null,
+          seller_number: seller_number ?? null,
+          amount: parsedAmount,
+          currency: 'NGN',
+          status: 'awaiting_payment', // Standardized lowercase
+          description: description ?? null,
+          paystack_ref: data.data.reference,
+        },
+      ]);
 
-    const { error: dbError } = await supabase
-        .from('escrow_orders')
-        .insert([
-            {
-                id: Date.now(),
-                seller_address: "0xFIAT0000000000000000000000000000000000",
-                buyer_email: email,
-                buyer_wallet_address: buyer_wallet,
-                seller_email: seller_email, 
-                seller_name: seller_name,
-                seller_bank: seller_bank,       
-                seller_number: seller_number,   
-                amount: parseFloat(amount),
-                currency: 'NGN',
-                status: 'AWAITING_PAYMENT',
-                description: description,
-                paystack_ref: data.data.reference
-            }
-        ]);
-
-    if (dbError) console.error("Database Save Failed Details:", JSON.stringify(dbError, null, 2));
+    if (dbError) {
+      console.error('[Initiate] DB Error:', dbError);
+      return NextResponse.json(
+        { status: false, message: 'Database Error: Could not secure order ledger.' },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json(data);
-
   } catch (error: any) {
-    console.error("[Payment Init Error]", error);
+    console.error('[Initiate] Error:', error);
     return NextResponse.json({ status: false, message: error.message }, { status: 500 });
   }
 }
