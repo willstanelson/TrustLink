@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       if (order.seller_email) {
         try {
             await resend.emails.send({
-                from: 'TrustLink Updates <onboarding@resend.dev>',
+                from: 'TrustLink <support@trustlink.com.ng>',
                 to: [order.seller_email], 
                 subject: 'New Escrow Order Secured! 💰',
                 html: `

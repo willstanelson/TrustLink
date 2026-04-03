@@ -16,7 +16,7 @@ export async function POST(request: Request) {
         const data = await resend.emails.send({
             // NOTE: Until you verify a custom domain (like trustlink.com), 
             // Resend requires you to send FROM this specific onboarding address:
-            from: 'TrustLink Updates <onboarding@resend.dev>',
+            from: 'TrustLink <support@trustlink.com.ng>',
             to: [to],
             subject: subject,
             html: `

@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     if (newStatus === 'secured' && existingOrder.seller_email) {
         try {
             await resend.emails.send({
-                from: 'TrustLink Updates <onboarding@resend.dev>', // Keep until domain is verified
+                from: 'TrustLink <support@trustlink.com.ng>', // Keep until domain is verified
                 to: [existingOrder.seller_email], 
                 subject: 'New Escrow Order Secured! 💰',
                 html: `
