@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { parseUnits } from 'viem';
 import { 
   MessageCircle, AlertTriangle, ThumbsUp, Truck, 
-  CheckCheck, Loader2, BellRing, CheckCircle, XCircle, Info
+  CheckCheck, Loader2, BellRing, CheckCircle, XCircle, Info, Clock
 } from 'lucide-react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { usePrivy } from '@privy-io/react-auth'; // 🚀 NEW: Import Privy
+import { usePrivy } from '@privy-io/react-auth'; 
 import { supabase } from '../lib/supabaseClient'; 
 import dynamic from 'next/dynamic'; 
 import TrustBadge from './TrustBadge';
@@ -167,7 +167,7 @@ export default function OrderCard({
   onUpdate: () => void;
 }) {
   const { toasts, dismiss, push } = useToast();
-  const { getAccessToken } = usePrivy(); // 🚀 NEW: Grab the Privy token engine
+  const { getAccessToken } = usePrivy(); 
 
   const [showChat, setShowChat] = useState(false);
   const [releaseAmount, setReleaseAmount] = useState('');
@@ -186,7 +186,7 @@ export default function OrderCard({
 
   const isFiat     = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
-  const orderId    = parseOrderId(rawOrderId); // validated numeric ID
+  const orderId    = parseOrderId(rawOrderId); 
   const peerAddress = isSellerView ? order.buyer : order.seller;
 
   const displayId = useMemo(() => {
@@ -214,9 +214,14 @@ export default function OrderCard({
   }, []);
 
   // ── Backend API Helper ─────────────────────────────────────────────────────
-  // 🚀 NEW: All database mutations route through our secure backend
   const executeUserAction = useCallback(async (actionType: string, payload = {}) => {
     const token = await getAccessToken();
+    
+    // 🚀 FIX: Catch empty tokens before we even hit the server
+    if (!token) {
+        throw new Error('Authentication token missing. Please refresh the page and try again.');
+    }
+
     const res = await fetch('/api/user/action', {
         method: 'POST',
         headers: {
@@ -265,7 +270,7 @@ export default function OrderCard({
 
   const isBusy = isPending || isConfirming || isDbLoading;
 
-  // ── Chat unread tracking (Safe to keep as direct Supabase Read) ─────────────
+  // ── Chat tracking ──────────────────────────────────────────────────────────
   useEffect(() => {
     chatOpenRef.current = showChat;
     if (showChat) localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
@@ -312,7 +317,6 @@ export default function OrderCard({
     return () => { supabase.removeChannel(channel); };
   }, [orderId, userAddress, rawOrderId]);
 
-  // ── Chat helpers ───────────────────────────────────────────────────────────
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
@@ -532,6 +536,16 @@ export default function OrderCard({
           <span>Paid: {order.percentPaid}%</span>
           <span>Locked: {100 - order.percentPaid}%</span>
         </div>
+
+        {/* 🚀 NEW: FIAT 24-HOUR INFO BANNER */}
+        {isFiat && !isTerminal && (
+          <div className="flex items-start gap-2 bg-blue-900/10 border border-blue-500/20 p-3 rounded-lg mb-6">
+            <Clock className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-400 leading-relaxed">
+              <strong className="text-blue-400">Fiat Payouts:</strong> Once the buyer releases the funds, the payout will be securely processed and settled into the seller's bank account <strong className="text-slate-300">within 24 hours</strong>.
+            </p>
+          </div>
+        )}
 
         {/* COUNTERPARTY */}
         <div className="flex items-center gap-2 mb-6 text-xs text-slate-400">

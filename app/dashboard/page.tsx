@@ -9,7 +9,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem'; 
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/app/constants';
-import React, { useEffect, useState, useMemo, Suspense } from 'react'; 
+import React, { useEffect, useState, useMemo, Suspense, useCallback } from 'react'; 
 import { supabase } from '@/lib/supabaseClient'; 
 import { useSearchParams, useRouter } from 'next/navigation'; 
 import { 
@@ -158,11 +158,24 @@ function MainDashboard() {
   const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // ✅ NEW: Holds the details while Wagmi talks to the blockchain
   const [pendingCryptoOrder, setPendingCryptoOrder] = useState<any>(null); 
 
   const { writeContract, data: txHash, isPending: isWriting, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // 🚀 NEW: Universal Notification Helper
+  const sendEmailNotification = useCallback(async (to: string, subject: string, message: string) => {
+    if (!to || !to.includes('@')) return; 
+    try {
+        await fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to, subject, message })
+        });
+    } catch (err) {
+        console.error("Failed to send email notification", err);
+    }
+  }, []);
 
   useEffect(() => { 
     if (notification) { 
@@ -193,6 +206,7 @@ function MainDashboard() {
       }
   };
 
+  // 🚀 UPDATED: Paystack Verification & Seller Notification
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (trxref) {
@@ -204,9 +218,24 @@ function MainDashboard() {
             body: JSON.stringify({ reference: trxref })
         })
         .then(res => res.json())
-        .then(data => {
+        .then(async data => {
             if (data.status) {
                 setShowSuccessModal(true); 
+                
+                // Fetch the order from the DB using the Paystack reference to safely find the seller's email
+                const { data: orderData } = await supabase
+                    .from('escrow_orders')
+                    .select('seller_email, amount')
+                    .eq('paystack_ref', trxref)
+                    .single();
+
+                if (orderData && orderData.seller_email) {
+                    sendEmailNotification(
+                        orderData.seller_email, 
+                        'New Escrow Order Secured! 💰', 
+                        `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
+                    );
+                }
             } else {
                 showToast("Payment was cancelled or failed.", "error");
             }
@@ -330,6 +359,7 @@ function MainDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 🚀 UPDATED: Crypto Success & Seller Notification
   useEffect(() => {
     if (isSuccess && pendingCryptoOrder) {
         if (txType === 'approve') {
@@ -347,10 +377,9 @@ function MainDashboard() {
             });
         } else if (txType === 'deposit') {
             
-            // 🔥 THE FIX: Using seller_address to match your Supabase columns!
             supabase.from('escrow_orders').insert([{
                 buyer_wallet_address: pendingCryptoOrder.buyerWallet,
-                seller_address: pendingCryptoOrder.sellerWallet, // <--- MATCHES DB PERFECTLY NOW
+                seller_address: pendingCryptoOrder.sellerWallet, 
                 buyer_email: pendingCryptoOrder.buyerEmail,
                 seller_email: pendingCryptoOrder.sellerEmail,
                 amount: pendingCryptoOrder.amount,
@@ -359,6 +388,16 @@ function MainDashboard() {
                 if (error) console.error("Supabase Sync Error:", error);
                 
                 showToast("Escrow Created Successfully!", 'success');
+                
+                // 🚀 NEW: Notify the seller instantly if they have an email attached
+                if (pendingCryptoOrder.sellerEmail) {
+                    sendEmailNotification(
+                        pendingCryptoOrder.sellerEmail,
+                        'New Escrow Order Secured! 💰',
+                        `Great news! A buyer has securely locked ${pendingCryptoOrder.amount} ${selectedAsset.symbol} in TrustLink for an order. Please log in to your dashboard to view and accept the order.`
+                    );
+                }
+
                 setSellerAddress(''); 
                 setAmountInput('');
                 setTxType(null); 
@@ -447,7 +486,7 @@ function MainDashboard() {
         if (['success', 'completed'].includes(currentStatus)) fiatStatusColor = "bg-slate-700 text-slate-300";
         else if (currentStatus === 'disputed') fiatStatusColor = "bg-red-500/20 text-red-400";
         else if (currentStatus === 'shipped') fiatStatusColor = "bg-blue-500/20 text-blue-400";
-        else if (['accepted', 'partially_released'].includes(currentStatus)) fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
+        else if (['accepted', 'partially_released', 'processing_payout'].includes(currentStatus)) fiatStatusColor = "bg-emerald-500/20 text-emerald-400";
 
         const totalAmt = Number(dbOrder.amount || 0);
         const releasedAmt = Number(dbOrder.released_amount || 0);
@@ -468,8 +507,8 @@ function MainDashboard() {
             percentPaid: percentPaid,
             type: 'FIAT',
             timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
-            isAccepted: ['accepted', 'partially_released', 'shipped', 'success', 'completed'].includes(currentStatus),
-            isShipped: ['shipped', 'success', 'completed'].includes(currentStatus),
+            isAccepted: ['accepted', 'partially_released', 'shipped', 'success', 'completed', 'processing_payout'].includes(currentStatus),
+            isShipped: ['shipped', 'success', 'completed', 'processing_payout'].includes(currentStatus),
             isCompleted: isFullyPaid,
             isDisputed: currentStatus === 'disputed'
         };
@@ -595,7 +634,7 @@ function MainDashboard() {
                     <CheckCircle2 className="w-12 h-12 text-emerald-400" />
                 </div>
                 <h2 className="text-3xl font-extrabold text-white mb-3">Payment Successful!</h2>
-                <p className="text-slate-400 mb-8 leading-relaxed">Your fiat payment has been securely locked in escrow. The seller has been notified.</p>
+                <p className="text-slate-400 mb-8 leading-relaxed">Your fiat payment has been securely locked in escrow. The seller has been notified via email.</p>
                 <button 
                     onClick={() => setShowSuccessModal(false)}
                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-extrabold text-lg py-4 rounded-xl transition-all shadow-lg"
