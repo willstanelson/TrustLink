@@ -64,9 +64,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         },
         walletConnectCloudProjectId: '836bc2231c157ce81b1030811a1512d5',
         embeddedWallets: {
-          // FIX 3: `createOnLogin` is a top-level key in embeddedWallets,
-          // not nested inside an `ethereum` object
-          createOnLogin: 'users-without-wallets',
+          ethereum: {
+            createOnLogin: 'users-without-wallets',
+          },
         },
       }}
     >
