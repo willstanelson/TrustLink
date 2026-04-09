@@ -342,21 +342,29 @@ function MainDashboard() {
     if (txType === 'deposit') {
       const symbolLabel = order.tokenAddress === ZERO_ADDRESS ? activeChain.nativeSymbol : 'USDC';
 
-      supabase.from('escrow_orders').insert([{
-        buyer_wallet_address: order.buyerWallet,
-        seller_address: order.sellerWallet,
-        buyer_email: order.buyerEmail,
-        seller_email: order.sellerEmail,
-        amount: order.amount,
-        token_symbol: symbolLabel, 
-        network: activeChain.name, 
-        status: 'secured',
-      }]).then(({ error }) => {
-        if (error) {
-          console.error("Supabase Sync Error:", error);
+      // 🚀 THE FIX: Send the payload to our secure backend route instead of writing directly from the frontend
+      fetch('/api/escrow/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyer_wallet_address: order.buyerWallet,
+          seller_address: order.sellerWallet,
+          buyer_email: order.buyerEmail,
+          seller_email: order.sellerEmail,
+          amount: order.amount,
+          token_symbol: symbolLabel,
+          network: activeChain.name,
+          status: 'secured',
+        })
+      })
+      .then(res => res.json())
+      .then((data) => {
+        if (data.status === 'error') {
+          console.error("Backend Sync Error:", data.message);
           showToast("Escrow secured on-chain, but dashboard sync is delayed.", 'warning');
         } else {
           showToast("Escrow Created Successfully!", 'success');
+          
           if (order.sellerEmail) {
             sendEmailNotification(
               order.sellerEmail,
@@ -371,10 +379,12 @@ function MainDashboard() {
         setPendingCryptoOrder(null);
         pendingCryptoOrderRef.current = null;
         handleRefresh();
+      })
+      .catch((err) => {
+        console.error("Fetch Error:", err);
+        showToast("Escrow secured, but failed to reach database API.", 'warning');
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess, txType]);
 
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
