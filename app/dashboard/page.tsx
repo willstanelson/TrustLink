@@ -168,8 +168,10 @@ function MainDashboard() {
   const userAddress = wagmiAddress || user?.wallet?.address;
 
   // FIX 5: useBalance with enabled guard to prevent undefined address errors
-  const { data: ethBalance, refetch: refetchEth } = useBalance({
+  // 🚀 UPDATED: Fetch USDC balance instead of Native Token
+  const { data: usdcBalance, refetch: refetchUsdc } = useBalance({
     address: userAddress as `0x${string}`,
+    token: activeChain.usdcAddress, // Explicitly points to the active chain's USDC contract
     query: { enabled: !!userAddress },
   });
 
@@ -213,10 +215,10 @@ function MainDashboard() {
   const handleRefresh = useCallback(() => {
     refetchTotalEscrows();
     refetchOrders();
-    refetchEth();
+    refetchUsdc(); // 🚀 Refetches USDC instead of ETH
     if (selectedAsset.symbol === 'USDC') refetchAllowance?.();
     fetchDbOrders();
-  }, [refetchTotalEscrows, refetchOrders, refetchEth, refetchAllowance, selectedAsset.symbol, fetchDbOrders]);
+  }, [refetchTotalEscrows, refetchOrders, refetchUsdc, refetchAllowance, selectedAsset.symbol, fetchDbOrders]);
 
   useEffect(() => { fetchDbOrders(); }, [fetchDbOrders]);
 
@@ -535,9 +537,10 @@ function MainDashboard() {
   const hasEmailLinked    = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
 
   // FIX 8: Format balance for wallet button display
-  const formattedBalance = ethBalance
-    ? `${parseFloat(formatEther(ethBalance.value)).toFixed(4)} ${ethBalance.symbol}`
-    : null;
+  // 🚀 UPDATED: Formats the USDC balance string (6 decimals)
+  const formattedBalance = usdcBalance
+    ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC`
+    : '0.00 USDC';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
