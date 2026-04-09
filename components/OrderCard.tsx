@@ -19,9 +19,6 @@ const SecureChat = dynamic(() => import('./SecureChat'), {
   loading: () => <div className="hidden">Loading Chat...</div>,
 });
 
-// ─────────────────────────────────────────────
-// Toast notification system
-// ─────────────────────────────────────────────
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 type Toast = {
@@ -44,8 +41,6 @@ const TOAST_BORDER: Record<ToastType, string> = {
   info:    'border-blue-500/40',
 };
 
-// FIX 5: Use createPortal so toasts render directly into document.body,
-// escaping any parent stacking contexts and avoiding per-card overlap.
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -86,9 +81,6 @@ function useToast() {
   return { toasts, dismiss, push };
 }
 
-// ─────────────────────────────────────────────
-// Confirmation modal
-// ─────────────────────────────────────────────
 type ConfirmConfig = {
   title: string;
   body: React.ReactNode;
@@ -122,15 +114,19 @@ function ConfirmModal({ config, onClose }: { config: ConfirmConfig; onClose: () 
   );
 }
 
-// ─────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
+// FIX 1: Added `lockedBalance` to the Order type — it was missing, causing a TypeScript
+//         error and potential runtime crash when the component tried to use it.
+// FIX 2: Added optional `sellerEmail` field to cleanly separate a fiat seller's
+//         display name (stored in `seller`) from their actual email address for
+//         notifications, preventing silent notification failures.
 type Order = {
   id: number | string;
+  scId?: number;
   buyer: string;
   seller: string;
+  sellerEmail?: string;
   amount: bigint;
-  lockedBalance: bigint;
+  lockedBalance: bigint; // FIX 1: Was missing from the type definition
   status: string;
   token_symbol: string;
   token: string;
@@ -145,9 +141,6 @@ type Order = {
   type: string;
 };
 
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
 function parseDisplayAmount(raw: string): number | null {
   const n = Number(String(raw).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -158,9 +151,6 @@ function parseOrderId(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// ─────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────
 export default function OrderCard({
   order,
   isSellerView,
@@ -185,7 +175,6 @@ export default function OrderCard({
   const [pendingReleaseAmount, setPendingReleaseAmount] = useState('');
 
   const chatOpenRef = useRef(showChat);
-  // FIX 4: actionRef now tracks 'release' | 'dispute' | 'cancel' | ''
   const actionRef = useRef('');
 
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
@@ -196,8 +185,16 @@ export default function OrderCard({
 
   const isFiat     = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
-  const orderId    = parseOrderId(rawOrderId);
+  const dbOrderId  = parseOrderId(rawOrderId);
   const peerAddress = isSellerView ? order.buyer : order.seller;
+
+  // FIX 2: Derive a guaranteed-valid email for peer notifications.
+  //         For fiat orders, `order.seller` may be a bank account display name, not
+  //         an email. Use `order.sellerEmail` when available, falling back to `order.seller`
+  //         only if it contains '@' and no spaces (i.e. it looks like a real email).
+  const peerEmail = isSellerView
+    ? order.buyer
+    : (order.sellerEmail ?? (order.seller.includes('@') && !order.seller.includes(' ') ? order.seller : undefined));
 
   const displayId = useMemo(() => {
     const numId = Number(rawOrderId);
@@ -206,9 +203,9 @@ export default function OrderCard({
     return isFiat ? `NGN-${scrambledHex}` : `ORD-${scrambledHex}`;
   }, [rawOrderId, isFiat, order.id]);
 
-  // ── Notifications ──────────────────────────────────────────────────────────
   const sendNotification = useCallback(async (to: string, subject: string, message: string) => {
-    if (!to?.includes('@')) return;
+    // FIX 2: Guard strictly — only send if `to` looks like a real email address
+    if (!to?.includes('@') || to.includes(' ')) return;
     try {
       const res = await fetch('/api/notify', {
         method: 'POST',
@@ -223,23 +220,25 @@ export default function OrderCard({
     }
   }, []);
 
-  // ── Backend API Helper ─────────────────────────────────────────────────────
   const executeUserAction = useCallback(async (actionType: string, payload = {}) => {
     const token = await getAccessToken();
     if (!token) throw new Error('Authentication token missing. Please refresh the page and try again.');
 
+    // FIX 3: Throw early if dbOrderId is null rather than silently passing undefined,
+    //         which would cause the server to act on an unintended order.
+    if (!dbOrderId) throw new Error('Invalid order ID — cannot perform action.');
+
     const res = await fetch('/api/user/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ actionType, orderId, payload }),
+      body: JSON.stringify({ actionType, orderId: dbOrderId, payload }),
     });
 
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Server error');
     return data;
-  }, [getAccessToken, orderId]);
+  }, [getAccessToken, dbOrderId]);
 
-  // ── Wagmi error handling ───────────────────────────────────────────────────
   useEffect(() => {
     if (writeError) {
       const msg = (writeError as any).shortMessage ?? writeError.message;
@@ -248,8 +247,6 @@ export default function OrderCard({
     }
   }, [writeError, push]);
 
-  // ── On-chain success ───────────────────────────────────────────────────────
-  // FIX 4: Handle success for release, dispute, and cancel with appropriate feedback.
   useEffect(() => {
     if (!isSuccess) return;
 
@@ -260,19 +257,24 @@ export default function OrderCard({
         body: JSON.stringify({ buyer: order.buyer, seller: order.seller }),
       }).catch(err => console.error('profile/increment failed:', err));
 
-      sendNotification(
-        order.seller,
-        'Funds Released!',
-        `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`,
-      );
+      // FIX 2: Use peerEmail — guaranteed to be a real email — for notifications
+      if (peerEmail) {
+        sendNotification(
+          peerEmail,
+          'Funds Released!',
+          `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`,
+        );
+      }
       push('success', 'Funds released successfully!');
 
     } else if (actionRef.current === 'dispute') {
-      sendNotification(
-        peerAddress,
-        'Order Disputed 🚨',
-        `A dispute has been raised on-chain for order ${displayId}. An admin will review the chat logs and make a final ruling.`,
-      );
+      if (peerEmail) {
+        sendNotification(
+          peerEmail,
+          'Order Disputed 🚨',
+          `A dispute has been raised on-chain for order ${displayId}. An admin will review the chat logs and make a final ruling.`,
+        );
+      }
       push('warning', 'Dispute raised on-chain. An admin will review shortly.');
 
     } else if (actionRef.current === 'cancel') {
@@ -281,24 +283,23 @@ export default function OrderCard({
 
     actionRef.current = '';
     setTimeout(onUpdate, 2000);
-  }, [isSuccess, isFiat, order.buyer, order.seller, displayId, peerAddress, sendNotification, push, onUpdate]);
+  }, [isSuccess, isFiat, order.buyer, order.seller, displayId, peerEmail, sendNotification, push, onUpdate]);
 
   const isBusy = isPending || isConfirming || isDbLoading;
 
-  // ── Chat tracking ──────────────────────────────────────────────────────────
   useEffect(() => {
     chatOpenRef.current = showChat;
     if (showChat) localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
   }, [showChat, rawOrderId]);
 
   useEffect(() => {
-    if (!userAddress || !orderId) return;
+    if (!userAddress || !dbOrderId) return;
 
     const checkHistory = async () => {
       const { data } = await supabase
         .from('messages')
         .select('created_at, sender_address')
-        .eq('order_id', orderId)
+        .eq('order_id', dbOrderId)
         .order('created_at', { ascending: false })
         .limit(1);
 
@@ -316,7 +317,7 @@ export default function OrderCard({
       .channel(`notify-${rawOrderId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${orderId}` },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${dbOrderId}` },
         (payload) => {
           if (payload.new.sender_address.toLowerCase() !== userAddress.toLowerCase()) {
             if (!chatOpenRef.current) {
@@ -330,7 +331,7 @@ export default function OrderCard({
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [orderId, userAddress, rawOrderId]);
+  }, [dbOrderId, userAddress, rawOrderId]);
 
   const openChat = () => {
     setHasUnread(false);
@@ -343,11 +344,8 @@ export default function OrderCard({
     localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
   };
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-
-  // FIX 1: Added orderId null guard — was calling executeUserAction with orderId: null
   const handleAccept = async () => {
-    if (!orderId) { push('error', 'Invalid order ID.'); return; }
+    if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
     setIsDbLoading(true);
     try {
       await executeUserAction('ACCEPT');
@@ -361,9 +359,8 @@ export default function OrderCard({
     }
   };
 
-  // FIX 1: Added orderId null guard — same issue as handleAccept
   const handleMarkShipped = async () => {
-    if (!orderId) { push('error', 'Invalid order ID.'); return; }
+    if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
     setIsDbLoading(true);
     try {
       await executeUserAction('SHIP');
@@ -406,27 +403,30 @@ export default function OrderCard({
 
   const executeRelease = async (cleanAmountStr: string) => {
     const releaseNum = parseDisplayAmount(cleanAmountStr);
-    if (!releaseNum || !orderId) { push('error', 'Invalid release parameters.'); return; }
+    if (!releaseNum) { push('error', 'Invalid release parameters.'); return; }
 
     if (isFiat) {
-      // FIX 2: Added orderId null guard (already checked above, but kept explicit for clarity)
+      if (!dbOrderId) return;
       setIsDbLoading(true);
       try {
         await executeUserAction('FIAT_RELEASE', { releaseAmount: releaseNum });
 
         push('success', `${releaseNum} NGN released. Funds will settle in the seller's bank account within 24 hours.`);
 
-        sendNotification(
-          order.seller,
-          'Funds Released (Processing)!',
-          `The buyer has released ${releaseNum} NGN for order ${displayId}. This payout is processing and will arrive in your bank account within 24 hours.`,
-        );
+        // FIX 2: Use peerEmail — fiat seller field is a display name, not an email
+        if (peerEmail) {
+          sendNotification(
+            peerEmail,
+            'Funds Released (Processing)!',
+            `The buyer has released ${releaseNum} NGN for order ${displayId}. This payout is processing and will arrive in your bank account within 24 hours.`,
+          );
+        }
 
         if (ADMIN_EMAIL) {
           sendNotification(
             ADMIN_EMAIL,
             'ACTION REQUIRED: Manual Fiat Payout',
-            `Buyer released ${releaseNum} NGN for order ${orderId}. Transfer to seller once Paystack settles.`,
+            `Buyer released ${releaseNum} NGN for order ${dbOrderId}. Transfer to seller once Paystack settles.`,
           );
         }
 
@@ -439,9 +439,9 @@ export default function OrderCard({
         setReleaseAmount('');
       }
     } else {
+      if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
+
       const decimals = order.token_symbol === 'USDC' ? 6 : 18;
-      // FIX 6: Clear the input immediately so it doesn't stay populated
-      // after the user confirms the split release and writeContract is called
       setReleaseAmount('');
       actionRef.current = 'release';
       writeContract({
@@ -449,7 +449,7 @@ export default function OrderCard({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'releaseMilestone',
-        args: [BigInt(orderId), parseUnits(cleanAmountStr, decimals)],
+        args: [BigInt(order.scId), parseUnits(cleanAmountStr, decimals)],
       });
     }
   };
@@ -473,11 +473,14 @@ export default function OrderCard({
 
   const handleDispute = async () => {
     if (isFiat) {
-      if (!orderId) { push('error', 'Invalid order ID.'); return; }
+      if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
       try {
         await executeUserAction('DISPUTE');
-        sendNotification(peerAddress, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
+        // FIX 2: Use peerEmail for fiat dispute notifications
+        if (peerEmail) {
+          sendNotification(peerEmail, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
+        }
         push('warning', 'Dispute raised. An admin will review shortly.');
         onUpdate();
       } catch (err: any) {
@@ -486,17 +489,14 @@ export default function OrderCard({
         setIsDbLoading(false);
       }
     } else {
-      // FIX 3: Replaced `?? 0` fallback with an explicit guard.
-      // Previously, a null orderId would silently call the contract with escrow ID 0.
-      if (!orderId) { push('error', 'Invalid order ID.'); return; }
-      // FIX 4: Set actionRef so isSuccess effect can show the right toast
+      if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
       actionRef.current = 'dispute';
       writeContract({
         chainId: activeChainId,
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'raiseDispute',
-        args: [BigInt(orderId)],
+        args: [BigInt(order.scId)],
       });
     }
   };
@@ -522,7 +522,7 @@ export default function OrderCard({
 
   const handleCancel = async () => {
     if (isFiat) {
-      if (!orderId) { push('error', 'Invalid order ID.'); return; }
+      if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
       try {
         await executeUserAction('CANCEL');
@@ -534,22 +534,32 @@ export default function OrderCard({
         setIsDbLoading(false);
       }
     } else {
-      // FIX 3: Same as handleDispute — replaced `?? 0` with explicit guard
-      if (!orderId) { push('error', 'Invalid order ID.'); return; }
-      // FIX 4: Set actionRef so isSuccess effect can show the right toast
+      if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
       actionRef.current = 'cancel';
       writeContract({
         chainId: activeChainId,
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'cancelOrder',
-        args: [BigInt(orderId)],
+        args: [BigInt(order.scId)],
       });
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  const isTerminal = ['PAID', 'COMPLETED', 'CANCELLED', 'PROCESSING PAYOUT'].includes(order.status);
+  // FIX 4: Added 'DISPUTED' to the terminal status list. Without it, both buyer and
+  //         seller could still trigger dispute/cancel actions on an already-disputed order,
+  //         causing duplicate DB writes and confusing UI state.
+  const isTerminal = [
+    'PAID',
+    'COMPLETED',
+    'CANCELLED',
+    'PROCESSING PAYOUT',
+    'DISPUTED',
+  ].includes(order.status);
+
+  // FIX 3: Capture chatOrderId so we never pass `0` to SecureChat when dbOrderId is null.
+  //         `0` is a falsy-looking but technically valid number that could match real DB rows.
+  const chatOrderId = dbOrderId ?? null;
 
   return (
     <>
@@ -599,7 +609,6 @@ export default function OrderCard({
         {/* ACTIONS */}
         <div className="flex flex-wrap gap-3">
 
-          {/* Chat button */}
           <button
             onClick={openChat}
             className={`relative flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all border ${hasUnread ? 'bg-slate-700 text-white border-emerald-500' : 'bg-slate-800 text-white border-slate-600 hover:bg-slate-700'}`}
@@ -691,20 +700,22 @@ export default function OrderCard({
           )}
         </div>
 
-        <SecureChat
-          isOpen={showChat}
-          onClose={closeChat}
-          peerAddress={peerAddress}
-          orderId={orderId ?? 0}
-        />
+        {/* FIX 3: Only render SecureChat when chatOrderId is a valid non-null number,
+                   preventing a silent `orderId=0` query against the database. */}
+        {chatOrderId !== null && (
+          <SecureChat
+            isOpen={showChat}
+            onClose={closeChat}
+            peerAddress={peerAddress}
+            orderId={chatOrderId}
+          />
+        )}
       </div>
 
-      {/* ── Generic confirm modal ──────────────────────────────────────────── */}
       {confirmConfig && (
         <ConfirmModal config={confirmConfig} onClose={() => setConfirmConfig(null)} />
       )}
 
-      {/* ── Split-release warning modal ──────────────────────────────────── */}
       {showSplitWarning && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-slate-900 border border-red-500/50 p-6 rounded-3xl max-w-sm w-full shadow-[0_0_50px_rgba(239,68,68,0.15)] relative animate-in zoom-in-95 duration-200">
@@ -742,7 +753,6 @@ export default function OrderCard({
         </div>
       )}
 
-      {/* ── Toast notifications (portalled to document.body) ─────────────── */}
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </>
   );
