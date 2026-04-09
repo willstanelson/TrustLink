@@ -22,7 +22,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ERC20_ABI = [
   { inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], name: 'allowance', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable', type: 'function' }
-];
+] as const;
 
 const BANKS = [
     { code: '120001', name: '9mobile 9Payment Service Bank' },
@@ -94,17 +94,15 @@ function MainDashboard() {
 
   const networkDropdownRef = useRef<HTMLDivElement>(null);
 
-  // 🚀 FIXED: Extracted resetContract to prevent the race condition
   const { writeContract, data: txHash, isPending: isWriting, error: writeError, reset: resetContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Multi-Chain Network Logic
+  // Safe Multi-Chain Network Logic (Guarantees activeChain is never undefined)
   const chainId = useChainId();
   const isUnsupportedNetwork = authenticated && !CHAIN_CONFIG[chainId];
   const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
-  const activeChain = CHAIN_CONFIG[activeChainId];
+  const activeChain = CHAIN_CONFIG[activeChainId] ?? CHAIN_CONFIG[9746];
 
-  // Dynamic Assets
   const ASSETS = useMemo(() => [
     { symbol: activeChain.nativeSymbol, name: activeChain.name, type: 'native', icon: 'bg-purple-600', address: ZERO_ADDRESS, decimals: 18 },
     { symbol: 'USDC', name: 'USD Coin', type: 'erc20', icon: 'bg-blue-600', address: activeChain.usdcAddress, decimals: 6 },
@@ -302,7 +300,7 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode, resolveBankAccount]);
 
-  // 🚀 FIXED: The Enterprise-Grade State Machine Guard
+  // 🚀 SECURE STATE MACHINE & BACKEND SYNC (Solves the RLS + Two Brains Bug)
   useEffect(() => {
     if (!isSuccess) return;
 
@@ -324,7 +322,7 @@ function MainDashboard() {
       const decimals = order.tokenAddress === ZERO_ADDRESS ? 18 : 6;
       const amountWei = parseUnits(order.amount, decimals);
 
-      resetContract(); // Wipe Wagmi's isSuccess state so the deposit block doesn't instantly fire
+      resetContract(); // Wipe Wagmi's isSuccess state so deposit block doesn't instantly fire
       setTxType('deposit'); 
 
       writeContract({
@@ -342,7 +340,7 @@ function MainDashboard() {
     if (txType === 'deposit') {
       const symbolLabel = order.tokenAddress === ZERO_ADDRESS ? activeChain.nativeSymbol : 'USDC';
 
-      // 🚀 THE FIX: Send the payload to our secure backend route instead of writing directly from the frontend
+      // Secure Backend Call (Bypasses RLS Safely via Zod API)
       fetch('/api/escrow/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -364,7 +362,6 @@ function MainDashboard() {
           showToast("Escrow secured on-chain, but dashboard sync is delayed.", 'warning');
         } else {
           showToast("Escrow Created Successfully!", 'success');
-          
           if (order.sellerEmail) {
             sendEmailNotification(
               order.sellerEmail,
@@ -385,6 +382,8 @@ function MainDashboard() {
         showToast("Escrow secured, but failed to reach database API.", 'warning');
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess, txType]);
 
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
