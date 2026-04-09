@@ -32,14 +32,20 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error("Supabase Admin Insert Error:", error);
-      return NextResponse.json({ status: 'error', message: 'Failed to create escrow record' }, { status: 500 });
+      // 🚀 CHANGED: Now it sends the exact database error back to the frontend
+      return NextResponse.json({ status: 'error', message: `DB Error: ${error.message}` }, { status: 500 });
     }
 
     return NextResponse.json({ status: 'success', message: 'Escrow order created successfully', id: data?.id });
 
   } catch (error: any) {
     console.error("API Error:", error);
-    if (error.name === 'ZodError') return NextResponse.json({ status: 'error', message: 'Invalid input data', errors: error.errors }, { status: 400 });
-    return NextResponse.json({ status: 'error', message: error.message || 'Internal server error' }, { status: 500 });
+    
+    if (error.name === 'ZodError') {
+      return NextResponse.json({ status: 'error', message: 'Invalid input data', errors: error.errors }, { status: 400 });
+    }
+    
+    // 🚀 CHANGED: Now it sends exact server crash reasons (like missing API keys) back to the frontend
+    return NextResponse.json({ status: 'error', message: `Server Error: ${error.message || 'Internal server error'}` }, { status: 500 });
   }
 }
