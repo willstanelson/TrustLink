@@ -97,7 +97,7 @@ function MainDashboard() {
   const { writeContract, data: txHash, isPending: isWriting, error: writeError, reset: resetContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Safe Multi-Chain Network Logic (Guarantees activeChain is never undefined)
+  // Safe Multi-Chain Network Logic
   const chainId = useChainId();
   const isUnsupportedNetwork = authenticated && !CHAIN_CONFIG[chainId];
   const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
@@ -300,7 +300,6 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode, resolveBankAccount]);
 
-  // 🚀 SECURE STATE MACHINE & BACKEND SYNC (Solves the RLS + Two Brains Bug)
   useEffect(() => {
     if (!isSuccess) return;
 
@@ -322,7 +321,7 @@ function MainDashboard() {
       const decimals = order.tokenAddress === ZERO_ADDRESS ? 18 : 6;
       const amountWei = parseUnits(order.amount, decimals);
 
-      resetContract(); // Wipe Wagmi's isSuccess state so deposit block doesn't instantly fire
+      resetContract();
       setTxType('deposit'); 
 
       writeContract({
@@ -334,13 +333,12 @@ function MainDashboard() {
         value: BigInt(0),
       });
 
-      return; // Early exit
+      return;
     }
 
     if (txType === 'deposit') {
       const symbolLabel = order.tokenAddress === ZERO_ADDRESS ? activeChain.nativeSymbol : 'USDC';
 
-      // Secure Backend Call (Bypasses RLS Safely via Zod API)
       fetch('/api/escrow/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -802,29 +800,32 @@ function MainDashboard() {
           )}
         </div>
 
-        <div className="w-full mt-20 border-t border-white/10 pt-10">
-          <div className="flex justify-between items-end mb-6 border-b border-white/10 pb-1">
-            <div className="flex gap-6">
-              <button onClick={() => setDashboardTab('buying')}  className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying'  ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
-              <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400'     : 'border-transparent text-slate-500'}`}>I'm Selling</button>
-            </div>
-            <div className="flex items-center gap-3 pb-3">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">Showing {mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'} Orders</span>
-              <button onClick={handleRefresh} className="text-slate-500 hover:text-white"><RefreshCcw className="w-4 h-4" /></button>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {displayedOrders.map((order: any) => (
-              <OrderCard key={order.id} order={order} isSellerView={dashboardTab === 'selling'} userAddress={userAddress || ''} onUpdate={handleRefresh} />
-            ))}
-            {displayedOrders.length === 0 && (
-              <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">
-                No active <span className="capitalize">{mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'}</span> orders found.
+        {/* 🚀 THE FIX: Wrap the entire orders section to hide it if logged out */}
+        {authenticated && (
+          <div className="w-full mt-20 border-t border-white/10 pt-10">
+            <div className="flex justify-between items-end mb-6 border-b border-white/10 pb-1">
+              <div className="flex gap-6">
+                <button onClick={() => setDashboardTab('buying')}  className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'buying'  ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-slate-500'}`}>I'm Buying</button>
+                <button onClick={() => setDashboardTab('selling')} className={`text-lg font-bold pb-4 border-b-2 transition-all ${dashboardTab === 'selling' ? 'border-blue-400 text-blue-400'     : 'border-transparent text-slate-500'}`}>I'm Selling</button>
               </div>
-            )}
+              <div className="flex items-center gap-3 pb-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700">Showing {mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'} Orders</span>
+                <button onClick={handleRefresh} className="text-slate-500 hover:text-white"><RefreshCcw className="w-4 h-4" /></button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {displayedOrders.map((order: any) => (
+                <OrderCard key={order.id} order={order} isSellerView={dashboardTab === 'selling'} userAddress={userAddress || ''} onUpdate={handleRefresh} />
+              ))}
+              {displayedOrders.length === 0 && (
+                <div className="text-slate-500 text-center py-10 italic border border-dashed border-slate-700 rounded-xl">
+                  No active <span className="capitalize">{mode === 'crypto' ? 'Cryptocurrency' : 'Bank Transfer'}</span> orders found.
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );
