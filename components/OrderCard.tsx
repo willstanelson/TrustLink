@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { parseUnits } from 'viem';
@@ -13,6 +15,14 @@ import TrustBadge from './TrustBadge';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '../app/constants';
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? '';
+
+const safeLocalStorage = {
+  get: (key: string): string | null =>
+    typeof window !== 'undefined' ? localStorage.getItem(key) : null,
+  set: (key: string, value: string): void => {
+    if (typeof window !== 'undefined') localStorage.setItem(key, value);
+  },
+};
 
 const SecureChat = dynamic(() => import('./SecureChat'), {
   ssr: false,
@@ -67,15 +77,23 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counter = useRef(0);
+  const timers = useRef<NodeJS.Timeout[]>([]);
 
   const push = useCallback((type: ToastType, message: string, durationMs = 5000) => {
     const id = ++counter.current;
     setToasts(prev => [...prev, { id, type, message }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), durationMs);
+    const timer = setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), durationMs);
+    timers.current.push(timer);
   }, []);
 
   const dismiss = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Guarantee memory leak cleanup if the component unmounts
+  useEffect(() => {
+    const currentTimers = timers.current;
+    return () => currentTimers.forEach(clearTimeout);
   }, []);
 
   return { toasts, dismiss, push };
@@ -114,19 +132,15 @@ function ConfirmModal({ config, onClose }: { config: ConfirmConfig; onClose: () 
   );
 }
 
-// FIX 1: Added `lockedBalance` to the Order type — it was missing, causing a TypeScript
-//         error and potential runtime crash when the component tried to use it.
-// FIX 2: Added optional `sellerEmail` field to cleanly separate a fiat seller's
-//         display name (stored in `seller`) from their actual email address for
-//         notifications, preventing silent notification failures.
 type Order = {
   id: number | string;
   scId?: number;
   buyer: string;
+  buyerEmail?: string;
   seller: string;
   sellerEmail?: string;
   amount: bigint;
-  lockedBalance: bigint; // FIX 1: Was missing from the type definition
+  lockedBalance: bigint; 
   status: string;
   token_symbol: string;
   token: string;
@@ -142,7 +156,7 @@ type Order = {
 };
 
 function parseDisplayAmount(raw: string): number | null {
-  const n = Number(String(raw).replace(/,/g, ''));
+  const n = Number(String(raw).replace(/[^0-9.]/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
@@ -177,29 +191,20 @@ export default function OrderCard({
   const chatOpenRef = useRef(showChat);
   const actionRef = useRef('');
 
-  // 👇 ADD THIS LINE TO DEFINE THE CONNECTOR 👇
   const { connector: activeConnector } = useAccount(); 
-
-  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
-
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   const chainId = useChainId();
-  const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
+  const activeChainId = CHAIN_CONFIG[chainId] ? chainId : (Object.keys(CHAIN_CONFIG).map(Number)[0] ?? chainId);
 
   const isFiat     = order.type === 'FIAT';
   const rawOrderId = String(order.id).replace('NGN-', '');
   const dbOrderId  = parseOrderId(rawOrderId);
   const peerAddress = isSellerView ? order.buyer : order.seller;
 
-  // FIX 2: Derive a guaranteed-valid email for peer notifications.
-  //         For fiat orders, `order.seller` may be a bank account display name, not
-  //         an email. Use `order.sellerEmail` when available, falling back to `order.seller`
-  //         only if it contains '@' and no spaces (i.e. it looks like a real email).
   const peerEmail = isSellerView
-    ? order.buyer
+    ? (order.buyerEmail ?? (order.buyer.includes('@') && !order.buyer.includes(' ') ? order.buyer : undefined))
     : (order.sellerEmail ?? (order.seller.includes('@') && !order.seller.includes(' ') ? order.seller : undefined));
 
   const displayId = useMemo(() => {
@@ -210,7 +215,6 @@ export default function OrderCard({
   }, [rawOrderId, isFiat, order.id]);
 
   const sendNotification = useCallback(async (to: string, subject: string, message: string) => {
-    // FIX 2: Guard strictly — only send if `to` looks like a real email address
     if (!to?.includes('@') || to.includes(' ')) return;
     try {
       const res = await fetch('/api/notify', {
@@ -230,8 +234,6 @@ export default function OrderCard({
     const token = await getAccessToken();
     if (!token) throw new Error('Authentication token missing. Please refresh the page and try again.');
 
-    // FIX 3: Throw early if dbOrderId is null rather than silently passing undefined,
-    //         which would cause the server to act on an unintended order.
     if (!dbOrderId) throw new Error('Invalid order ID — cannot perform action.');
 
     const res = await fetch('/api/user/action', {
@@ -263,7 +265,6 @@ export default function OrderCard({
         body: JSON.stringify({ buyer: order.buyer, seller: order.seller }),
       }).catch(err => console.error('profile/increment failed:', err));
 
-      // FIX 2: Use peerEmail — guaranteed to be a real email — for notifications
       if (peerEmail) {
         sendNotification(
           peerEmail,
@@ -295,7 +296,7 @@ export default function OrderCard({
 
   useEffect(() => {
     chatOpenRef.current = showChat;
-    if (showChat) localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+    if (showChat) safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
   }, [showChat, rawOrderId]);
 
   useEffect(() => {
@@ -311,7 +312,7 @@ export default function OrderCard({
 
       if (data?.length) {
         const isFromOther = data[0].sender_address.toLowerCase() !== userAddress.toLowerCase();
-        const lastRead = localStorage.getItem(`chat_read_${rawOrderId}`);
+        const lastRead = safeLocalStorage.get(`chat_read_${rawOrderId}`);
         const msgTime  = new Date(data[0].created_at).getTime();
         if (isFromOther && (!lastRead || msgTime > Number(lastRead))) setHasUnread(true);
       }
@@ -329,7 +330,7 @@ export default function OrderCard({
             if (!chatOpenRef.current) {
               setHasUnread(true);
             } else {
-              localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+              safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
             }
           }
         },
@@ -342,12 +343,12 @@ export default function OrderCard({
   const openChat = () => {
     setHasUnread(false);
     setShowChat(true);
-    localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+    safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
   };
 
   const closeChat = () => {
     setShowChat(false);
-    localStorage.setItem(`chat_read_${rawOrderId}`, Date.now().toString());
+    safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
   };
 
   const handleAccept = async () => {
@@ -419,7 +420,6 @@ export default function OrderCard({
 
         push('success', `${releaseNum} NGN released. Funds will settle in the seller's bank account within 24 hours.`);
 
-        // FIX 2: Use peerEmail — fiat seller field is a display name, not an email
         if (peerEmail) {
           sendNotification(
             peerEmail,
@@ -484,7 +484,6 @@ export default function OrderCard({
       setIsDbLoading(true);
       try {
         await executeUserAction('DISPUTE');
-        // FIX 2: Use peerEmail for fiat dispute notifications
         if (peerEmail) {
           sendNotification(peerEmail, 'Order Disputed 🚨', `A dispute has been raised on order ${displayId}. An admin will review the chat logs and make a final ruling.`);
         }
@@ -555,9 +554,6 @@ export default function OrderCard({
     }
   };
 
-  // FIX 4: Added 'DISPUTED' to the terminal status list. Without it, both buyer and
-  //         seller could still trigger dispute/cancel actions on an already-disputed order,
-  //         causing duplicate DB writes and confusing UI state.
   const isTerminal = [
     'PAID',
     'COMPLETED',
@@ -566,8 +562,6 @@ export default function OrderCard({
     'DISPUTED',
   ].includes(order.status);
 
-  // FIX 3: Capture chatOrderId so we never pass `0` to SecureChat when dbOrderId is null.
-  //         `0` is a falsy-looking but technically valid number that could match real DB rows.
   const chatOrderId = dbOrderId ?? null;
 
   return (
@@ -700,7 +694,7 @@ export default function OrderCard({
                       <CheckCheck className="w-3.5 h-3.5" /> Shipped – Waiting
                     </div>
                   )}
-                  <button onClick={confirmDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg">
+                  <button onClick={confirmDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg flex items-center justify-center">
                     <AlertTriangle className="w-4 h-4" />
                   </button>
                 </>
@@ -709,8 +703,6 @@ export default function OrderCard({
           )}
         </div>
 
-        {/* FIX 3: Only render SecureChat when chatOrderId is a valid non-null number,
-                   preventing a silent `orderId=0` query against the database. */}
         {chatOrderId !== null && (
           <SecureChat
             isOpen={showChat}
