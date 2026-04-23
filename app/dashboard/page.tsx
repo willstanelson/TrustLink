@@ -6,6 +6,8 @@
 import OrderCard from '@/components/OrderCard';
 import WalletModal from '@/components/WalletModal';
 import { usePrivy } from '@privy-io/react-auth';
+import { useWallets } from '@privy-io/react-auth';
+import { useSetActiveWallet } from '@privy-io/wagmi';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
 import { parseUnits, formatEther, formatUnits, isAddress } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '@/app/constants';
@@ -57,6 +59,15 @@ function MainDashboard() {
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
+  // 🚀 THE FIX: Force Wagmi to sync with Privy's embedded wallet after mobile redirects
+  const { wallets } = useWallets();
+  const { setActiveWallet } = useSetActiveWallet();
+
+  useEffect(() => {
+    if (wallets.length > 0) {
+      setActiveWallet(wallets[0]);
+    }
+  }, [wallets, setActiveWallet]);
 
   const [mode, setMode] = useState<'crypto' | 'fiat'>('crypto');
 
