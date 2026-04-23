@@ -1,23 +1,16 @@
 'use client';
 
-// ==========================================
-// 1. IMPORTS
-// ==========================================
 import OrderCard from '@/components/OrderCard';
 import WalletModal from '@/components/WalletModal';
-import { usePrivy } from '@privy-io/react-auth';
-import { useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useSetActiveWallet } from '@privy-io/wagmi';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
-import { parseUnits, formatEther, formatUnits, isAddress } from 'viem';
+import { useReadContract, useReadContracts, useAccount, useSwitchChain, useBalance, useChainId } from 'wagmi';
+import { createWalletClient, createPublicClient, custom, parseUnits, formatEther, formatUnits, isAddress } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '@/app/constants';
 import React, { useEffect, useState, useMemo, Suspense, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useSearchParams, useRouter } from 'next/navigation';
-import {
-  Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet,
-  ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail, Globe
-} from 'lucide-react';
+import { Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail, Globe } from 'lucide-react';
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -51,31 +44,26 @@ const BANKS = [
     { code: '057',    name: 'Zenith Bank' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-// ==========================================
-// 2. MAIN DASHBOARD COMPONENT
-// ==========================================
 function MainDashboard() {
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
-  // 🚀 THE FIX: Force Wagmi to sync with Privy's embedded wallet after mobile redirects
+  
   const { wallets } = useWallets();
   const { setActiveWallet } = useSetActiveWallet();
 
   useEffect(() => {
-    if (wallets.length > 0) {
-      setActiveWallet(wallets[0]);
-    }
+    if (wallets.length > 0 && wallets[0]) setActiveWallet(wallets[0]);
   }, [wallets, setActiveWallet]);
 
   const [mode, setMode] = useState<'crypto' | 'fiat'>('crypto');
-
   const [sellerAddress, setSellerAddress] = useState('');
   const [amountInput, setAmountInput] = useState('');
   const [selectedAssetIndex, setSelectedAssetIndex] = useState(0);
   const [isTokenListOpen, setIsTokenListOpen] = useState(false);
   const [isNetworkListOpen, setIsNetworkListOpen] = useState(false);
+  const [isWriting, setIsWriting] = useState(false);
 
   const [fiatAmount, setFiatAmount] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
@@ -94,21 +82,10 @@ function MainDashboard() {
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-
-  const [txType, setTxType] = useState<'approve' | 'deposit' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const [pendingCryptoOrder, setPendingCryptoOrder] = useState<any>(null);
-
-  const pendingCryptoOrderRef = useRef<any>(null);
-  useEffect(() => { pendingCryptoOrderRef.current = pendingCryptoOrder; }, [pendingCryptoOrder]);
 
   const networkDropdownRef = useRef<HTMLDivElement>(null);
 
-  const { writeContract, data: txHash, isPending: isWriting, error: writeError, reset: resetContract } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
-
-  // Safe Multi-Chain Network Logic
   const chainId = useChainId();
   const isUnsupportedNetwork = authenticated && !CHAIN_CONFIG[chainId];
   const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
@@ -133,9 +110,7 @@ function MainDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ to, subject, message }),
       });
-    } catch (err) {
-      console.error("Failed to send email notification", err);
-    }
+    } catch (err) { console.error("Failed to send email notification", err); }
   }, []);
 
   useEffect(() => {
@@ -144,15 +119,6 @@ function MainDashboard() {
       return () => clearTimeout(t);
     }
   }, [notification]);
-
-  useEffect(() => {
-    if (writeError) {
-      const errorMsg = (writeError as any).shortMessage || writeError.message;
-      showToast(errorMsg, 'error');
-      setTxType(null);
-      setPendingCryptoOrder(null);
-    }
-  }, [writeError, showToast]);
 
   useEffect(() => {
     if (switchError) showToast(switchError.message, 'error');
@@ -173,7 +139,7 @@ function MainDashboard() {
     if (searchQuery) router.push(`/user/${encodeURIComponent(searchQuery)}`);
   };
 
-  const { address: wagmiAddress, connector: activeConnector } = useAccount();
+  const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
 
   const { data: usdcBalance, refetch: refetchUsdc } = useBalance({
@@ -197,7 +163,7 @@ function MainDashboard() {
 
   const indexesToFetch = useMemo(() => {
     const idxs = [];
-    for (let i = count; i > 0 && i > count - 10; i--) idxs.push(i);
+    for (let i = count; i > 0 && idxs.length < 10; i--) idxs.push(i);
     return idxs;
   }, [count]);
 
@@ -227,58 +193,13 @@ function MainDashboard() {
 
   useEffect(() => { fetchDbOrders(); }, [fetchDbOrders]);
 
+  const handleRefreshRef = useRef(handleRefresh);
+  useEffect(() => { handleRefreshRef.current = handleRefresh; }, [handleRefresh]);
+
   useEffect(() => {
-    const intervalId = setInterval(handleRefresh, 5000);
+    const intervalId = setInterval(() => handleRefreshRef.current(), 5000);
     return () => clearInterval(intervalId);
-  }, [handleRefresh]);
-
-  useEffect(() => {
-    const trxref = searchParams.get('trxref') || searchParams.get('reference');
-    if (trxref) {
-      setMode('fiat');
-      fetch('/api/paystack/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference: trxref }),
-      })
-        .then(res => res.json())
-        .then(async data => {
-          if (data.status) {
-            setShowSuccessModal(true);
-            const { data: orderData } = await supabase
-              .from('escrow_orders').select('seller_email, amount').eq('paystack_ref', trxref).single();
-            if (orderData?.seller_email) {
-              sendEmailNotification(
-                orderData.seller_email,
-                'New Escrow Order Secured! 💰',
-                `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
-              );
-            }
-          } else {
-            showToast("Payment was cancelled or failed.", "error");
-          }
-          fetchDbOrders();
-          router.replace('/dashboard');
-        });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  useEffect(() => {
-    const prefillSeller = searchParams.get('seller');
-    const prefillMode = searchParams.get('autoMode');
-    if (prefillSeller && prefillMode) {
-      if (prefillMode === 'fiat') {
-        setMode('fiat');
-        setSellerEmail(decodeURIComponent(prefillSeller));
-      } else if (prefillMode === 'crypto') {
-        setMode('crypto');
-        setSellerAddress(prefillSeller);
-      }
-      router.replace('/dashboard');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
@@ -311,89 +232,23 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode, resolveBankAccount]);
 
-  useEffect(() => {
-    if (!isSuccess) return;
-
-    const order = pendingCryptoOrderRef.current;
-    
-    if (!order) {
-      if (txType === 'deposit') {
-        showToast("Escrow Created Successfully!", 'success');
-        setSellerAddress('');
-        setAmountInput('');
-        setTxType(null);
-        handleRefresh();
-      }
-      return;
-    }
-
-    if (txType === 'approve') {
-      showToast("Approved! Automatically securing your escrow...", 'success');
-      const decimals = order.tokenAddress === ZERO_ADDRESS ? 18 : 6;
-      const amountWei = parseUnits(order.amount, decimals);
-
-      resetContract();
-      setTxType('deposit'); 
-
-      writeContract({
-        chainId: activeChainId,
-        address: CONTRACT_ADDRESS,
-        abi: CONTRACT_ABI,
-        functionName: 'createEscrow',
-        args: [order.sellerWallet as `0x${string}`, order.tokenAddress as `0x${string}`, amountWei],
-        value: BigInt(0),
-        connector: activeConnector,
-      });
-
-      return;
-    }
-
-    if (txType === 'deposit') {
-      const symbolLabel = order.tokenAddress === ZERO_ADDRESS ? activeChain.nativeSymbol : 'USDC';
-
-      fetch('/api/escrow/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          buyer_wallet_address: order.buyerWallet,
-          seller_address: order.sellerWallet,
-          buyer_email: order.buyerEmail,
-          seller_email: order.sellerEmail,
-          amount: order.amount,
-          token_symbol: symbolLabel,
-          network: activeChain.name,
-          status: 'secured',
-        })
-      })
-      .then(res => res.json())
-      .then((data) => {
-        if (data.status === 'error') {
-          console.error("Backend Sync Error:", data.message);
-          showToast("Escrow secured on-chain, but dashboard sync is delayed.", 'warning');
-        } else {
-          showToast("Escrow Created Successfully!", 'success');
-          if (order.sellerEmail) {
-            sendEmailNotification(
-              order.sellerEmail,
-              `New Escrow Order on ${activeChain.name}! 💰`,
-              `Great news! A buyer has securely locked ${order.amount} ${symbolLabel} in TrustLink.\n\nIMPORTANT: This order was created on the ${activeChain.name} network. Please ensure your wallet is connected to ${activeChain.name} in your TrustLink dashboard to view and accept the order.`
-            );
-          }
+  // NETWORK ALERT INDICATORS
+  const networkAlerts = useMemo(() => {
+    const alerts: Record<string, boolean> = {};
+    if (!userAddress) return alerts;
+    Object.values(dbOrders).forEach((db: any) => {
+      if (!db.paystack_ref) {
+        const isSeller = db.seller_address?.toLowerCase() === userAddress.toLowerCase();
+        const isBuyer = db.buyer_wallet_address?.toLowerCase() === userAddress.toLowerCase();
+        const isActive = ['secured', 'accepted', 'shipped'].includes(db.status?.toLowerCase());
+        
+        if ((isSeller || isBuyer) && isActive && db.network) {
+          alerts[db.network] = true;
         }
-        setSellerAddress('');
-        setAmountInput('');
-        setTxType(null);
-        setPendingCryptoOrder(null);
-        pendingCryptoOrderRef.current = null;
-        handleRefresh();
-      })
-      .catch((err) => {
-        console.error("Fetch Error:", err);
-        showToast("Escrow secured, but failed to reach database API.", 'warning');
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuccess, txType]);
+      }
+    });
+    return alerts;
+  }, [dbOrders, userAddress]);
 
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
@@ -426,13 +281,11 @@ function MainDashboard() {
 
           possibleDbOrders.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
           const dbOrder = possibleDbOrders[0];
-
           if (dbOrder) usedDbIds.add(dbOrder.id);
 
           const dbId = dbOrder ? dbOrder.id : scId;
-
-          const isAccepted = dbOrder?.status === 'accepted' || dbOrder?.status === 'shipped' || escrow[6];
-          const isShipped = dbOrder?.status === 'shipped' || escrow[7];
+          const isAccepted = dbOrder?.status === 'accepted' || dbOrder?.status === 'shipped' || !!escrow[6];
+          const isShipped = dbOrder?.status === 'shipped' || !!escrow[7];
 
           const paidAmount = totalAmount - lockedBalance;
           const percentPaid = totalAmount > BigInt(0) ? Number((paidAmount * BigInt(100)) / totalAmount) : 0;
@@ -445,20 +298,14 @@ function MainDashboard() {
           else if (isShipped)      { status = "SHIPPED";            statusColor = "bg-blue-500/20 text-blue-400"; }
 
           const order = {
-            id: dbId,
-            scId: scId,
-            buyer, seller,
+            id: dbId, scId, buyer, seller,
             sellerEmail: dbOrder?.seller_email ?? undefined,
-            token: tokenAddr,
-            amount: totalAmount,
-            lockedBalance,  
+            buyerEmail: dbOrder?.buyer_email ?? undefined,
+            token: tokenAddr, amount: totalAmount, lockedBalance,  
             isAccepted, isShipped, isDisputed: chainDisputed, isCompleted: chainCompleted,
-            status, statusColor,
-            token_symbol: isNative ? activeChain.nativeSymbol : 'USDC',
-            formattedTotal: formattedAmt,
-            formattedLocked: isNative ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
-            percentPaid, type: 'CRYPTO',
-            timestamp: dbOrder?.created_at ? new Date(dbOrder.created_at).getTime() : Number(scId),
+            status, statusColor, token_symbol: isNative ? activeChain.nativeSymbol : 'USDC',
+            formattedTotal: formattedAmt, formattedLocked: isNative ? formatEther(lockedBalance) : formatUnits(lockedBalance, 6),
+            percentPaid, type: 'CRYPTO', timestamp: dbOrder?.created_at ? new Date(dbOrder.created_at).getTime() : Number(scId),
           };
 
           if (buyer.toLowerCase()  === userAddress.toLowerCase()) buying.push(order);
@@ -493,25 +340,17 @@ function MainDashboard() {
       const percentPaid = isFullyPaid ? 100 : (totalAmt > 0 ? Math.round((releasedAmt / totalAmt) * 100) : 0);
 
       const fiatOrderObj = {
-        id: `NGN-${dbOrder.id}`,
-        buyer: dbOrder.buyer_email,
+        id: `NGN-${dbOrder.id}`, buyer: dbOrder.buyer_email,
         seller: dbOrder.seller_name || dbOrder.seller_email || '',  
         sellerEmail: dbOrder.seller_email ?? undefined,              
-        amount: BigInt(0),
-        lockedBalance: BigInt(0),  
-        formattedTotal: totalAmt.toLocaleString(),
-        formattedLocked: lockedAmt.toLocaleString(),
-        token_symbol: 'NGN',
-        token: '',
-        status: isFullyPaid ? 'PAID' : currentStatus.toUpperCase().replace('_', ' '),
-        statusColor: fiatStatusColor,
-        percentPaid,
-        type: 'FIAT',
-        timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
+        amount: BigInt(0), lockedBalance: BigInt(0),  
+        formattedTotal: totalAmt.toLocaleString(), formattedLocked: lockedAmt.toLocaleString(),
+        token_symbol: 'NGN', token: '',
+        status: isFullyPaid ? 'PAID' : currentStatus.toUpperCase().replace('_', ' '), statusColor: fiatStatusColor,
+        percentPaid, type: 'FIAT', timestamp: dbOrder.created_at ? new Date(dbOrder.created_at).getTime() : dbOrder.id,
         isAccepted:  ['accepted', 'partially_released', 'shipped', 'success', 'completed', 'processing_payout', 'secured'].includes(currentStatus),
         isShipped:   ['shipped', 'success', 'completed', 'processing_payout'].includes(currentStatus),
-        isCompleted: isFullyPaid,
-        isDisputed:  currentStatus === 'disputed',
+        isCompleted: isFullyPaid, isDisputed:  currentStatus === 'disputed',
       };
 
       if (isMyEmailAsBuyer || isMyWalletAsBuyer) buying.push(fiatOrderObj);
@@ -524,6 +363,7 @@ function MainDashboard() {
     return { myBuyingOrders: buying, mySellingOrders: selling };
   }, [escrowsData, userAddress, indexesToFetch, dbOrders, user, activeChain.nativeSymbol]);
 
+  // 🔥 PRIVY LINEAR EXECUTION (Bypasses Wagmi desync completely)
   const handleCryptoTransaction = async () => {
     if (isUnsupportedNetwork) { showToast("Please switch to a supported network first.", 'error'); return; }
     if (!sellerAddress || !amountInput) return;
@@ -547,47 +387,73 @@ function MainDashboard() {
     if (!isAddress(finalSellerAddress))                                       { showToast("Invalid Wallet Address or Email", 'error'); return; }
     if (finalSellerAddress.toLowerCase() === userAddress?.toLowerCase())      { showToast("You cannot create an order with yourself.", 'error'); return; }
 
-    const newOrder = {
-      buyerWallet: userAddress,
-      sellerWallet: finalSellerAddress,
-      buyerEmail: buyerEmail || null,
-      sellerEmail: sellerAddress.includes('@') ? sellerAddress.trim() : null,
-      amount: amountInput,
-      tokenAddress: selectedAsset.address,
-    };
-    setPendingCryptoOrder(newOrder);
-    pendingCryptoOrderRef.current = newOrder;
-
+    setIsWriting(true);
     try {
+      const wallet = wallets[0];
+      if (!wallet) throw new Error("Wallet not connected");
+
+      await wallet.switchChain(activeChainId);
+      const provider = await wallet.getEthereumProvider();
+      
+      const walletClient = createWalletClient({
+        account: wallet.address as `0x${string}`,
+        chain: activeChain.viemChain,
+        transport: custom(provider)
+      });
+      const publicClient = createPublicClient({ chain: activeChain.viemChain, transport: custom(provider) });
+
       const isNative  = selectedAsset.type === 'native';
       const amountWei = parseUnits(amountInput, selectedAsset.decimals);
+      const symbolLabel = isNative ? activeChain.nativeSymbol : 'USDC';
 
       if (!isNative) {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
-          setTxType('approve');
-          writeContract({ 
-            chainId: activeChainId, 
-            address: selectedAsset.address as `0x${string}`, 
-            abi: ERC20_ABI, 
-            functionName: 'approve', 
-            args: [CONTRACT_ADDRESS, amountWei],
-            connector: activeConnector // <-- ADDED HERE
-          });
           showToast("Approving USDC... Please wait.", 'info');
-          return;
+          const approveHash = await walletClient.writeContract({ 
+            address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, 
+            functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei]
+          });
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          showToast("USDC Approved. Securing escrow...", 'info');
         }
       }
-      setTxType('deposit');
-      writeContract({
-        chainId: activeChainId, address: CONTRACT_ADDRESS, abi: CONTRACT_ABI,
-        functionName: 'createEscrow',
-        args: [finalSellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei],
-        value: isNative ? amountWei : BigInt(0),
-        connector: activeConnector,
-      });
+      
       showToast("Awaiting wallet confirmation...", 'info');
-    } catch (err: any) { showToast("Error: " + err.message, 'error'); }
+      const hash = await walletClient.writeContract({
+        address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'createEscrow',
+        args: [finalSellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei],
+        value: isNative ? amountWei : BigInt(0)
+      });
+
+      showToast("Transaction submitted. Waiting for blockchain confirmation...", 'info');
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      
+      if (receipt.status === 'success') {
+         // Guarantee DB save directly after receipt confirmation
+         const res = await fetch('/api/escrow/create', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              buyer_wallet_address: userAddress, seller_address: finalSellerAddress,
+              buyer_email: buyerEmail || null, seller_email: sellerAddress.includes('@') ? sellerAddress.trim() : null,
+              amount: amountInput, token_symbol: symbolLabel, network: activeChain.name, status: 'secured',
+            })
+         });
+         const data = await res.json();
+         if (data.status === 'error') {
+            showToast("Escrow secured on-chain, but dashboard sync is delayed.", 'warning');
+         } else {
+            showToast("Escrow Created Successfully!", 'success');
+            if (sellerAddress.includes('@')) {
+               sendEmailNotification(sellerAddress.trim(), `New Escrow Order on ${activeChain.name}! 💰`, `Great news! A buyer has securely locked ${amountInput} ${symbolLabel} in TrustLink.\n\nIMPORTANT: This order was created on the ${activeChain.name} network. Please ensure your wallet is connected to ${activeChain.name} in your TrustLink dashboard to view and accept the order.`);
+            }
+         }
+         setSellerAddress('');
+         setAmountInput('');
+         handleRefresh();
+      } else { throw new Error("Transaction reverted on chain."); }
+    } catch (err: any) { showToast(err.shortMessage || err.message || "Transaction Error", 'error'); } 
+    finally { setIsWriting(false); }
   };
 
   const handleFiatTransaction = async () => {
@@ -617,10 +483,7 @@ function MainDashboard() {
   const activeOrdersList  = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders   = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
   const hasEmailLinked    = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
-
-  const formattedBalance = usdcBalance
-    ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC`
-    : '0.00 USDC';
+  const formattedBalance = usdcBalance ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC` : '0.00 USDC';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
@@ -672,14 +535,16 @@ function MainDashboard() {
               >
                 <Globe className="w-4 h-4" />
                 <span className="hidden sm:block">{isUnsupportedNetwork ? 'Unsupported' : activeChain.name}</span>
+                {networkAlerts[activeChain.name] && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
                 <ChevronDown className="w-3 h-3 opacity-50" />
               </button>
               {isNetworkListOpen && (
                 <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl z-[100] overflow-hidden shadow-xl">
                   {Object.entries(CHAIN_CONFIG).map(([id, config]) => (
                     <button key={id} onClick={() => { switchChain({ chainId: Number(id) }); setIsNetworkListOpen(false); }}
-                      className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors ${Number(id) === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
-                      {config.name}
+                      className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${Number(id) === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
+                      <span>{config.name}</span>
+                      {networkAlerts[config.name] && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" title="Active Orders Here!" />}
                     </button>
                   ))}
                 </div>
@@ -689,13 +554,9 @@ function MainDashboard() {
             <button onClick={() => setIsWalletModalOpen(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 rounded-2xl transition-all shadow-lg">
               <div className="flex flex-col items-start">
                 <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[150px]">
-                  {user?.email?.address || user?.google?.email
-                    ? (user?.email?.address || user?.google?.email)?.split('@')[0]
-                    : (userAddress ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : "Wallet")}
+                  {user?.email?.address || user?.google?.email ? (user?.email?.address || user?.google?.email)?.split('@')[0] : (userAddress ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : "Wallet")}
                 </span>
-                {formattedBalance && (
-                  <span className="text-[10px] text-emerald-400 font-bold leading-none">{formattedBalance}</span>
-                )}
+                {formattedBalance && <span className="text-[10px] text-emerald-400 font-bold leading-none">{formattedBalance}</span>}
               </div>
               <Wallet className="w-4 h-4 text-emerald-400" />
             </button>
@@ -715,7 +576,6 @@ function MainDashboard() {
             <button onClick={login} className="w-full bg-emerald-500 hover:bg-emerald-400 py-3 rounded-xl font-bold">Connect Wallet</button>
           ) : (
             <div className="flex flex-col gap-4">
-
               <div className="bg-slate-900/80 p-1 rounded-xl flex mb-2 border border-slate-700">
                 <button onClick={() => setMode('crypto')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'crypto' ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Bitcoin className="w-4 h-4" /> Cryptocurrency</button>
                 <button onClick={() => setMode('fiat')}   className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${mode === 'fiat'   ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}><Banknote className="w-4 h-4" /> Bank Transfer</button>
@@ -750,9 +610,9 @@ function MainDashboard() {
                     <label className="text-xs text-slate-400 ml-1 font-bold">AMOUNT</label>
                     <input type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} placeholder="0.00" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" />
                   </div>
-                  <button onClick={handleCryptoTransaction} disabled={isWriting || isConfirming || (!isUnsupportedNetwork && (!sellerAddress || !amountInput))}
+                  <button onClick={handleCryptoTransaction} disabled={isWriting || (!isUnsupportedNetwork && (!sellerAddress || !amountInput))}
                     className={`w-full py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all ${isUnsupportedNetwork ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white'}`}>
-                    {(isWriting || isConfirming) ? <Loader2 className="animate-spin w-5 h-5" /> : (isUnsupportedNetwork ? "Network Unsupported" : "Secure Cryptocurrency")}
+                    {isWriting ? <Loader2 className="animate-spin w-5 h-5" /> : (isUnsupportedNetwork ? "Network Unsupported" : "Secure Cryptocurrency")}
                   </button>
                 </>
               )}
@@ -820,7 +680,6 @@ function MainDashboard() {
           )}
         </div>
 
-        {/* 🚀 THE FIX: Wrap the entire orders section to hide it if logged out */}
         {authenticated && (
           <div className="w-full mt-20 border-t border-white/10 pt-10">
             <div className="flex justify-between items-end mb-6 border-b border-white/10 pb-1">
