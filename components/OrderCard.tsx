@@ -5,7 +5,7 @@ import {
   MessageCircle, AlertTriangle, ThumbsUp, Truck,
   CheckCheck, Loader2, BellRing, CheckCircle, XCircle, Info, Clock
 } from 'lucide-react';
-import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useWriteContract, useWaitForTransactionReceipt, useChainId, useAccount } from 'wagmi';
 import { usePrivy } from '@privy-io/react-auth';
 import { supabase } from '../lib/supabaseClient';
 import dynamic from 'next/dynamic';
@@ -176,6 +176,12 @@ export default function OrderCard({
 
   const chatOpenRef = useRef(showChat);
   const actionRef = useRef('');
+
+  // 👇 ADD THIS LINE TO DEFINE THE CONNECTOR 👇
+  const { connector: activeConnector } = useAccount(); 
+
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
@@ -450,6 +456,7 @@ export default function OrderCard({
         abi: CONTRACT_ABI,
         functionName: 'releaseMilestone',
         args: [BigInt(order.scId), parseUnits(cleanAmountStr, decimals)],
+        connector: activeConnector,
       });
     }
   };
@@ -497,6 +504,7 @@ export default function OrderCard({
         abi: CONTRACT_ABI,
         functionName: 'raiseDispute',
         args: [BigInt(order.scId)],
+        connector: activeConnector,
       });
     }
   };
@@ -542,6 +550,7 @@ export default function OrderCard({
         abi: CONTRACT_ABI,
         functionName: 'cancelOrder',
         args: [BigInt(order.scId)],
+        connector: activeConnector,
       });
     }
   };

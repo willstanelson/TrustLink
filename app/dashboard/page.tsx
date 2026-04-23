@@ -173,7 +173,7 @@ function MainDashboard() {
     if (searchQuery) router.push(`/user/${encodeURIComponent(searchQuery)}`);
   };
 
-  const { address: wagmiAddress } = useAccount();
+  const { address: wagmiAddress, connector: activeConnector } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
 
   const { data: usdcBalance, refetch: refetchUsdc } = useBalance({
@@ -342,6 +342,7 @@ function MainDashboard() {
         functionName: 'createEscrow',
         args: [order.sellerWallet as `0x${string}`, order.tokenAddress as `0x${string}`, amountWei],
         value: BigInt(0),
+        connector: activeConnector,
       });
 
       return;
@@ -565,7 +566,14 @@ function MainDashboard() {
         const currentAllowance = usdcAllowance ? BigInt(String(usdcAllowance)) : BigInt(0);
         if (currentAllowance < amountWei) {
           setTxType('approve');
-          writeContract({ chainId: activeChainId, address: selectedAsset.address as `0x${string}`, abi: ERC20_ABI, functionName: 'approve', args: [CONTRACT_ADDRESS, amountWei] });
+          writeContract({ 
+            chainId: activeChainId, 
+            address: selectedAsset.address as `0x${string}`, 
+            abi: ERC20_ABI, 
+            functionName: 'approve', 
+            args: [CONTRACT_ADDRESS, amountWei],
+            connector: activeConnector // <-- ADDED HERE
+          });
           showToast("Approving USDC... Please wait.", 'info');
           return;
         }
@@ -576,6 +584,7 @@ function MainDashboard() {
         functionName: 'createEscrow',
         args: [finalSellerAddress as `0x${string}`, selectedAsset.address as `0x${string}`, amountWei],
         value: isNative ? amountWei : BigInt(0),
+        connector: activeConnector,
       });
       showToast("Awaiting wallet confirmation...", 'info');
     } catch (err: any) { showToast("Error: " + err.message, 'error'); }

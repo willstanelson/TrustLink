@@ -1,5 +1,5 @@
 // 1. The Universal Escrow Contract Address
-export const CONTRACT_ADDRESS = "0x27aCD1C45583B005CB071B23eF147702A618420E" as `0x${string}`;
+export const CONTRACT_ADDRESS = "0x5025F74946fa6091cE61C7A85E87099F8EF35086" as `0x${string}`;
 
 // 2. The Multi-Chain Configuration Dictionary
 export const CHAIN_CONFIG: Record<number, { name: string; nativeSymbol: string; usdcAddress: `0x${string}` }> = {
