@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { PrivyClient, User, WalletWithMetadata, AuthError } from '@privy-io/server-auth';
+import { PrivyClient, User, WalletWithMetadata } from '@privy-io/server-auth';
 
 const privy = new PrivyClient(
   process.env.NEXT_PUBLIC_PRIVY_APP_ID!,
@@ -113,12 +113,13 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     console.error('Session error:', err);
 
-    // Explicit type checking for SDK-defined auth errors
-    if (err instanceof AuthError) {
-      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+    if (err instanceof Error) {
+      const name = err.name;
+      if (name === 'PrivyError' || name === 'AuthError' || name === 'UnauthorizedError') {
+        return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+      }
     }
 
-    // Unhandled server errors or network timeouts
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
