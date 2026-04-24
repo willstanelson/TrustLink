@@ -8,13 +8,15 @@ import { defineChain } from 'viem';
 import { baseSepolia, bscTestnet, optimismSepolia, polygonAmoy } from 'viem/chains';
 import React, { useState } from 'react';
 
+// 🚀 THE FIX: Import AuthProvider here, inside the Client Component boundary
+import { AuthProvider } from '@/context/AuthContext';
+
 // ==========================================
 // 1. DEFINE THE PLASMA TESTNET
 // ==========================================
 export const plasmaTestnet = defineChain({
   id: 9746,
   name: 'Plasma Testnet',
-  // FIX 1: Removed deprecated `network` field
   nativeCurrency: {
     decimals: 18,
     name: 'Plasma',
@@ -30,7 +32,7 @@ export const plasmaTestnet = defineChain({
 });
 
 // ==========================================
-// 2. WAGMI CONFIG (defined outside component — safe, no side effects)
+// 2. WAGMI CONFIG
 // ==========================================
 export const wagmiConfig = createConfig({
   chains: [plasmaTestnet, baseSepolia, bscTestnet, optimismSepolia, polygonAmoy],
@@ -47,8 +49,6 @@ export const wagmiConfig = createConfig({
 // 3. PROVIDERS
 // ==========================================
 export default function Providers({ children }: { children: React.ReactNode }) {
-  // FIX 2: queryClient must be created inside the component via useState
-  // to avoid shared state across requests in SSR (Next.js App Router)
   const [queryClient] = useState(() => new QueryClient());
 
   return (
@@ -72,7 +72,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
-          {children}
+          {/* 🚀 THE FIX: AuthProvider safely executes entirely on the client side */}
+          <AuthProvider>
+            {children}
+          </AuthProvider>
         </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
