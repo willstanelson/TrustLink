@@ -262,23 +262,43 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode, resolveBankAccount]);
 
-  // NETWORK ALERT INDICATORS
+  // NETWORK ALERT INDICATORS (Asymmetric & Keyed by Chain ID)
   const networkAlerts = useMemo(() => {
-    const alerts: Record<string, boolean> = {};
+    const alerts: Record<number, number> = {};
     if (!userAddress) return alerts;
+
     Object.values(dbOrders).forEach((db: any) => {
-      if (!db.paystack_ref) {
+      if (!db.paystack_ref && db.network) {
         const isSeller = db.seller_address?.toLowerCase() === userAddress.toLowerCase();
-        const isBuyer = db.buyer_wallet_address?.toLowerCase() === userAddress.toLowerCase();
-        const isActive = ['secured', 'accepted', 'shipped'].includes(db.status?.toLowerCase());
+        const isBuyer  = db.buyer_wallet_address?.toLowerCase() === userAddress.toLowerCase();
+        const status   = db.status?.toLowerCase();
+
+        let actionNeeded = false;
         
-        if ((isSeller || isBuyer) && isActive && db.network) {
-          alerts[db.network] = true;
+        // Asymmetric logic: Only alert if it's YOUR turn
+        if (isSeller && (status === 'secured' || status === 'accepted')) {
+          actionNeeded = true;
+        } else if (isBuyer && status === 'shipped') {
+          actionNeeded = true;
+        }
+
+        if (actionNeeded) {
+          // Resolve string to unambiguous Chain ID
+          const chainId = Number(
+            Object.entries(CHAIN_CONFIG).find(
+              ([, cfg]) => cfg.name === db.network || cfg.nativeSymbol === db.network
+            )?.[0]
+          );
+          if (chainId) {
+            alerts[chainId] = (alerts[chainId] || 0) + 1;
+          }
         }
       }
     });
     return alerts;
   }, [dbOrders, userAddress]);
+
+  const totalActionableOrders = Object.values(networkAlerts).reduce((sum, n) => sum + n, 0);
 
   const { myBuyingOrders, mySellingOrders } = useMemo(() => {
     const buying: any[] = [];
@@ -598,18 +618,35 @@ function MainDashboard() {
               >
                 <Globe className="w-4 h-4" />
                 <span className="hidden sm:block">{isUnsupportedNetwork ? 'Unsupported' : activeChain.name}</span>
-                {networkAlerts[activeChain.name] && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+                
+                {/* Top-level Number Indicator */}
+                {totalActionableOrders > 0 && (
+                  <div className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+                    {totalActionableOrders}
+                  </div>
+                )}
+                
                 <ChevronDown className="w-3 h-3 opacity-50" />
               </button>
+
               {isNetworkListOpen && (
                 <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl z-[100] overflow-hidden shadow-xl">
-                  {Object.entries(CHAIN_CONFIG).map(([id, config]) => (
-                    <button key={id} onClick={() => { switchChain({ chainId: Number(id) }); setIsNetworkListOpen(false); }}
-                      className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${Number(id) === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
-                      <span>{config.name}</span>
-                      {networkAlerts[config.name] && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" title="Active Orders Here!" />}
-                    </button>
-                  ))}
+                  {Object.entries(CHAIN_CONFIG).map(([id, config]) => {
+                    const chainIdNum = Number(id);
+                    return (
+                      <button key={id} onClick={() => { switchChain({ chainId: chainIdNum }); setIsNetworkListOpen(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${chainIdNum === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
+                        <span>{config.name}</span>
+                        
+                        {/* ID-based Network Badge */}
+                        {networkAlerts[chainIdNum] > 0 && (
+                          <div className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+                            {networkAlerts[chainIdNum]}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
