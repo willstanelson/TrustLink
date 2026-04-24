@@ -9,10 +9,11 @@ import {
 } from 'lucide-react';
 import { useWriteContract, useWaitForTransactionReceipt, useChainId, useAccount } from 'wagmi';
 import { usePrivy } from '@privy-io/react-auth';
-import { supabase } from '../lib/supabaseClient';
 import dynamic from 'next/dynamic';
 import TrustBadge from './TrustBadge';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '../app/constants';
+// 🚀 THE FIX: Import the secure auth context instead of the raw client
+import { useAuth } from '../context/AuthContext';
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? '';
 
@@ -90,7 +91,6 @@ function useToast() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  // Guarantee memory leak cleanup if the component unmounts
   useEffect(() => {
     const currentTimers = timers.current;
     return () => currentTimers.forEach(clearTimeout);
@@ -178,6 +178,9 @@ export default function OrderCard({
 }) {
   const { toasts, dismiss, push } = useToast();
   const { getAccessToken } = usePrivy();
+  
+  // 🚀 THE FIX: Pull the authenticated supabase client from context
+  const { supabase } = useAuth();
 
   const [showChat, setShowChat] = useState(false);
   const [releaseAmount, setReleaseAmount] = useState('');
@@ -299,6 +302,7 @@ export default function OrderCard({
     if (showChat) safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
   }, [showChat, rawOrderId]);
 
+  // 🚀 THE FIX: Supabase is securely injected and added to dependency array
   useEffect(() => {
     if (!userAddress || !dbOrderId) return;
 
@@ -338,7 +342,7 @@ export default function OrderCard({
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [dbOrderId, userAddress, rawOrderId]);
+  }, [dbOrderId, userAddress, rawOrderId, supabase]); // <-- supabase dependency added!
 
   const openChat = () => {
     setHasUnread(false);

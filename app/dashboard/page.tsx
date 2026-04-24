@@ -8,7 +8,8 @@ import { useReadContract, useReadContracts, useAccount, useSwitchChain, useBalan
 import { createWalletClient, createPublicClient, custom, parseUnits, formatEther, formatUnits, isAddress } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '@/app/constants';
 import React, { useEffect, useState, useMemo, Suspense, useCallback, useRef } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+// 🚀 THE FIX: Import the secure auth context instead of the raw client
+import { useAuth } from '@/context/AuthContext';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail, Globe } from 'lucide-react';
 
@@ -45,6 +46,31 @@ const BANKS = [
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 function MainDashboard() {
+  // 🚀 THE FIX: Pull the authenticated supabase client from context
+  const { supabase, sessionReady, sessionLoading, sessionError, refreshSession } = useAuth();
+
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
+        <Loader2 className="w-10 h-10 text-emerald-500 animate-spin mb-4" />
+        <p className="text-slate-400 font-mono text-sm animate-pulse">Securing session...</p>
+      </div>
+    );
+  }
+  if (sessionError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
+        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+        <p className="text-slate-300 font-mono text-sm mb-6 max-w-sm text-center">{sessionError}</p>
+        <button 
+          onClick={refreshSession} 
+          className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2"
+        >
+          <RefreshCcw className="w-4 h-4" /> Retry Connection
+        </button>
+      </div>
+    );
+  }
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
@@ -174,6 +200,7 @@ function MainDashboard() {
     query: { refetchInterval: 30000 },
   });
 
+  // 🚀 THE FIX: Adding supabase to the useCallback dependencies
   const fetchDbOrders = useCallback(async () => {
     const { data } = await supabase.from('escrow_orders').select('*');
     if (data) {
@@ -181,7 +208,7 @@ function MainDashboard() {
       data.forEach((row: any) => { map[row.id] = row; });
       setDbOrders(map);
     }
-  }, []);
+  }, [supabase]);
 
   const handleRefresh = useCallback(() => {
     refetchTotalEscrows();
@@ -484,6 +511,39 @@ function MainDashboard() {
   const displayedOrders   = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
   const hasEmailLinked    = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
   const formattedBalance = usdcBalance ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC` : '0.00 USDC';
+
+  // 🚀 THE FIX: Adding supabase to the useCallback dependencies
+  useEffect(() => {
+    const trxref = searchParams.get('trxref') || searchParams.get('reference');
+    if (trxref) {
+      setMode('fiat');
+      fetch('/api/paystack/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: trxref }),
+      })
+        .then(res => res.json())
+        .then(async data => {
+          if (data.status) {
+            setShowSuccessModal(true);
+            const { data: orderData } = await supabase
+              .from('escrow_orders').select('seller_email, amount').eq('paystack_ref', trxref).single();
+            if (orderData?.seller_email) {
+              sendEmailNotification(
+                orderData.seller_email,
+                'New Escrow Order Secured! 💰',
+                `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
+              );
+            }
+          } else {
+            showToast("Payment was cancelled or failed.", "error");
+          }
+          fetchDbOrders();
+          router.replace('/dashboard');
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, supabase]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
