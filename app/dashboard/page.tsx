@@ -202,13 +202,14 @@ function MainDashboard() {
 
   // 🚀 THE FIX: Adding supabase to the useCallback dependencies
   const fetchDbOrders = useCallback(async () => {
-    const { data } = await supabase.from('escrow_orders').select('*');
-    if (data) {
-      const map: Record<number, any> = {};
-      data.forEach((row: any) => { map[row.id] = row; });
-      setDbOrders(map);
-    }
-  }, [supabase]);
+  if (!sessionReady) return; // <- add this line
+  const { data } = await supabase.from('escrow_orders').select('*');
+  if (data) {
+    const map: Record<number, any> = {};
+    data.forEach((row: any) => { map[row.id] = row; });
+    setDbOrders(map);
+  }
+}, [supabase, sessionReady]); // <- add sessionReady to deps
 
   const handleRefresh = useCallback(() => {
     refetchTotalEscrows();
@@ -218,7 +219,9 @@ function MainDashboard() {
     fetchDbOrders();
   }, [refetchTotalEscrows, refetchOrders, refetchUsdc, refetchAllowance, selectedAsset.symbol, fetchDbOrders]);
 
-  useEffect(() => { fetchDbOrders(); }, [fetchDbOrders]);
+  useEffect(() => { 
+  if (sessionReady) fetchDbOrders(); 
+}, [fetchDbOrders, sessionReady]);
 
   const handleRefreshRef = useRef(handleRefresh);
   useEffect(() => { handleRefreshRef.current = handleRefresh; }, [handleRefresh]);
