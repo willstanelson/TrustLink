@@ -36,18 +36,20 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { bankName, accountNumber, accountName } = body;
+    const { bankName, bankCode, accountNumber, accountName } = body;
 
-    if (!bankName || !accountNumber || !accountName) {
+    // 1. Validate FIRST (Don't waste database reads if the data is empty)
+    if (!bankName || !bankCode || !accountNumber || !accountName) {
       return NextResponse.json({ error: 'Missing bank details' }, { status: 400 });
     }
 
-    // 2. Upsert the Bank Details into the Profiles table
+    // 2. Perform exactly ONE upsert with all the fields
     const { error } = await supabaseAdmin
       .from('profiles')
       .upsert({ 
         wallet_address: callerWallet, 
         bank_name: bankName,
+        bank_code: bankCode,
         account_number: accountNumber,
         account_name: accountName,
         updated_at: new Date().toISOString()
