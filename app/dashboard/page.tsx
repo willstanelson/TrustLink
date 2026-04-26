@@ -8,10 +8,10 @@ import { useReadContract, useReadContracts, useAccount, useSwitchChain, useBalan
 import { createWalletClient, createPublicClient, custom, parseUnits, formatEther, formatUnits, isAddress } from 'viem';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '@/app/constants';
 import React, { useEffect, useState, useMemo, Suspense, useCallback, useRef } from 'react';
-// 🚀 THE FIX: Import the secure auth context instead of the raw client
 import { useAuth } from '@/context/AuthContext';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail, Globe } from 'lucide-react';
+import Link from 'next/link';
+import { Lock, LogOut, Loader2, RefreshCcw, AlertTriangle, Wallet, ChevronDown, X, CheckCircle2, Banknote, Bitcoin, ArrowRight, UserCheck, Search, Mail, Globe, User } from 'lucide-react';
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -46,31 +46,8 @@ const BANKS = [
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 function MainDashboard() {
-  // 🚀 THE FIX: Pull the authenticated supabase client from context
+  // 🚀 FIX 1: ALL HOOKS UNCONDITIONALLY AT THE TOP
   const { supabase, sessionReady, sessionLoading, sessionError, refreshSession } = useAuth();
-
-  if (sessionLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
-        <Loader2 className="w-10 h-10 text-emerald-500 animate-spin mb-4" />
-        <p className="text-slate-400 font-mono text-sm animate-pulse">Securing session...</p>
-      </div>
-    );
-  }
-  if (sessionError) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-slate-300 font-mono text-sm mb-6 max-w-sm text-center">{sessionError}</p>
-        <button 
-          onClick={refreshSession} 
-          className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2"
-        >
-          <RefreshCcw className="w-4 h-4" /> Retry Connection
-        </button>
-      </div>
-    );
-  }
   const { login, authenticated, user, logout, linkEmail } = usePrivy();
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
@@ -78,10 +55,6 @@ function MainDashboard() {
   
   const { wallets } = useWallets();
   const { setActiveWallet } = useSetActiveWallet();
-
-  useEffect(() => {
-    if (wallets.length > 0 && wallets[0]) setActiveWallet(wallets[0]);
-  }, [wallets, setActiveWallet]);
 
   const [mode, setMode] = useState<'crypto' | 'fiat'>('crypto');
   const [sellerAddress, setSellerAddress] = useState('');
@@ -139,6 +112,16 @@ function MainDashboard() {
     } catch (err) { console.error("Failed to send email notification", err); }
   }, []);
 
+  // 🚀 FIX 5: Stable refs for callbacks inside effects
+  const showToastRef = useRef(showToast);
+  const sendEmailRef = useRef(sendEmailNotification);
+  useEffect(() => { showToastRef.current = showToast; }, [showToast]);
+  useEffect(() => { sendEmailRef.current = sendEmailNotification; }, [sendEmailNotification]);
+
+  useEffect(() => {
+    if (wallets.length > 0 && wallets[0]) setActiveWallet(wallets[0]);
+  }, [wallets, setActiveWallet]);
+
   useEffect(() => {
     if (notification) {
       const t = setTimeout(() => setNotification(null), 4000);
@@ -159,11 +142,6 @@ function MainDashboard() {
     if (isNetworkListOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isNetworkListOpen]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery) router.push(`/user/${encodeURIComponent(searchQuery)}`);
-  };
 
   const { address: wagmiAddress } = useAccount();
   const userAddress = wagmiAddress || user?.wallet?.address;
@@ -187,11 +165,20 @@ function MainDashboard() {
   });
   const count = totalEscrows ? Number(totalEscrows) : 0;
 
+  // 🚀 FIX 4: Securely mapping known DB IDs to prevent order hiding
   const indexesToFetch = useMemo(() => {
-    const idxs = [];
-    for (let i = count; i > 0 && idxs.length < 10; i--) idxs.push(i);
-    return idxs;
-  }, [count]);
+    if (!userAddress || Object.keys(dbOrders).length === 0) {
+      const idxs = [];
+      for (let i = count; i > 0 && idxs.length < 20; i--) idxs.push(i);
+      return idxs;
+    }
+    const dbScIds = Object.values(dbOrders)
+      .filter((db: any) => !db.paystack_ref && db.id)
+      .map((db: any) => db.id);
+    const globalFallback: number[] = [];
+    for (let i = count; i > 0 && globalFallback.length < 10; i--) globalFallback.push(i);
+    return [...new Set([...dbScIds, ...globalFallback])];
+  }, [count, dbOrders, userAddress]);
 
   const { data: escrowsData, refetch: refetchOrders } = useReadContracts({
     contracts: indexesToFetch.map((id) => ({
@@ -200,16 +187,16 @@ function MainDashboard() {
     query: { refetchInterval: 30000 },
   });
 
-  // 🚀 THE FIX: Adding supabase to the useCallback dependencies
+  // 🚀 FIX 2: Added internal sessionReady guard
   const fetchDbOrders = useCallback(async () => {
-  if (!sessionReady) return; // <- add this line
-  const { data } = await supabase.from('escrow_orders').select('*');
-  if (data) {
-    const map: Record<number, any> = {};
-    data.forEach((row: any) => { map[row.id] = row; });
-    setDbOrders(map);
-  }
-}, [supabase, sessionReady]); // <- add sessionReady to deps
+    if (!sessionReady) return;
+    const { data } = await supabase.from('escrow_orders').select('*');
+    if (data) {
+      const map: Record<number, any> = {};
+      data.forEach((row: any) => { map[row.id] = row; });
+      setDbOrders(map);
+    }
+  }, [supabase, sessionReady]);
 
   const handleRefresh = useCallback(() => {
     refetchTotalEscrows();
@@ -219,17 +206,21 @@ function MainDashboard() {
     fetchDbOrders();
   }, [refetchTotalEscrows, refetchOrders, refetchUsdc, refetchAllowance, selectedAsset.symbol, fetchDbOrders]);
 
-  useEffect(() => { 
-  if (sessionReady) fetchDbOrders(); 
-}, [fetchDbOrders, sessionReady]);
-
-  const handleRefreshRef = useRef(handleRefresh);
-  useEffect(() => { handleRefreshRef.current = handleRefresh; }, [handleRefresh]);
+  // 🚀 FIX 3: Split Polling logic to save RPC quota
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (sessionReady) fetchDbOrders();
+    }, 8000); 
+    return () => clearInterval(id);
+  }, [sessionReady, fetchDbOrders]);
 
   useEffect(() => {
-    const intervalId = setInterval(() => handleRefreshRef.current(), 5000);
-    return () => clearInterval(intervalId);
-  }, []);
+    const id = setInterval(() => {
+      refetchTotalEscrows();
+      refetchOrders();
+    }, 60000); 
+    return () => clearInterval(id);
+  }, [refetchTotalEscrows, refetchOrders]);
 
   useEffect(() => {
     const activeEmail = user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email;
@@ -262,7 +253,38 @@ function MainDashboard() {
     else { setAccountName(''); setResolveError(''); }
   }, [accountNumber, bankCode, resolveBankAccount]);
 
-  // NETWORK ALERT INDICATORS (Asymmetric & Keyed by Chain ID)
+  // 🚀 FIX 5: Stale-proof Paystack verification
+  useEffect(() => {
+    const trxref = searchParams.get('trxref') || searchParams.get('reference');
+    if (!trxref || !sessionReady) return;
+
+    setMode('fiat');
+    fetch('/api/paystack/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference: trxref }),
+    })
+      .then(res => res.json())
+      .then(async data => {
+        if (data.status) {
+          setShowSuccessModal(true);
+          const { data: orderData } = await supabase
+            .from('escrow_orders').select('seller_email, amount').eq('paystack_ref', trxref).single();
+          if (orderData?.seller_email) {
+            sendEmailRef.current(
+              orderData.seller_email,
+              'New Escrow Order Secured! 💰',
+              `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
+            );
+          }
+        } else {
+          showToastRef.current("Payment was cancelled or failed.", "error");
+        }
+        fetchDbOrders();
+        router.replace('/dashboard');
+      });
+  }, [searchParams, supabase, sessionReady, fetchDbOrders, router]);
+
   const networkAlerts = useMemo(() => {
     const alerts: Record<number, number> = {};
     if (!userAddress) return alerts;
@@ -278,12 +300,12 @@ function MainDashboard() {
         else if (isBuyer && status === 'shipped') actionNeeded = true;
 
         if (actionNeeded) {
-          const chainId = Number(
+          const chainIdNum = Number(
             Object.entries(CHAIN_CONFIG).find(
               ([, cfg]) => cfg.name === db.network || cfg.nativeSymbol === db.network
             )?.[0]
           );
-          if (chainId) alerts[chainId] = (alerts[chainId] || 0) + 1;
+          if (chainIdNum) alerts[chainIdNum] = (alerts[chainIdNum] || 0) + 1;
         }
       }
     });
@@ -405,7 +427,11 @@ function MainDashboard() {
     return { myBuyingOrders: buying, mySellingOrders: selling };
   }, [escrowsData, userAddress, indexesToFetch, dbOrders, user, activeChain.nativeSymbol]);
 
-  // 🔥 PRIVY LINEAR EXECUTION (Bypasses Wagmi desync completely)
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery) router.push(`/user/${encodeURIComponent(searchQuery)}`);
+  };
+
   const handleCryptoTransaction = async () => {
     if (isUnsupportedNetwork) { showToast("Please switch to a supported network first.", 'error'); return; }
     if (!sellerAddress || !amountInput) return;
@@ -472,7 +498,6 @@ function MainDashboard() {
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
       
       if (receipt.status === 'success') {
-         // Guarantee DB save directly after receipt confirmation
          const res = await fetch('/api/escrow/create', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -527,38 +552,31 @@ function MainDashboard() {
   const hasEmailLinked    = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
   const formattedBalance = usdcBalance ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC` : '0.00 USDC';
 
-  // 🚀 THE FIX: Adding supabase to the useCallback dependencies
-  useEffect(() => {
-    const trxref = searchParams.get('trxref') || searchParams.get('reference');
-    if (trxref) {
-      setMode('fiat');
-      fetch('/api/paystack/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reference: trxref }),
-      })
-        .then(res => res.json())
-        .then(async data => {
-          if (data.status) {
-            setShowSuccessModal(true);
-            const { data: orderData } = await supabase
-              .from('escrow_orders').select('seller_email, amount').eq('paystack_ref', trxref).single();
-            if (orderData?.seller_email) {
-              sendEmailNotification(
-                orderData.seller_email,
-                'New Escrow Order Secured! 💰',
-                `Great news! A buyer has securely locked ₦${Number(orderData.amount).toLocaleString()} in TrustLink for a Bank Transfer order. Please log in to your dashboard to view and accept the order.`
-              );
-            }
-          } else {
-            showToast("Payment was cancelled or failed.", "error");
-          }
-          fetchDbOrders();
-          router.replace('/dashboard');
-        });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, supabase]);
+
+  // 🚀 FIX 1: EARLY RETURNS PLACED SAFELY AT THE BOTTOM AFTER ALL HOOKS
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
+        <Loader2 className="w-10 h-10 text-emerald-500 animate-spin mb-4" />
+        <p className="text-slate-400 font-mono text-sm animate-pulse">Securing session...</p>
+      </div>
+    );
+  }
+  
+  if (sessionError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">
+        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+        <p className="text-slate-300 font-mono text-sm mb-6 max-w-sm text-center">{sessionError}</p>
+        <button 
+          onClick={refreshSession} 
+          className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 rounded-xl font-bold transition-all shadow-lg flex items-center gap-2"
+        >
+          <RefreshCcw className="w-4 h-4" /> Retry Connection
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white font-sans pb-20 relative">
@@ -611,7 +629,6 @@ function MainDashboard() {
                 <Globe className="w-4 h-4" />
                 <span className="hidden sm:block">{isUnsupportedNetwork ? 'Unsupported' : activeChain.name}</span>
                 
-                {/* Top-level Number Indicator */}
                 {totalActionableOrders > 0 && (
                   <div className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]">
                     {totalActionableOrders}
@@ -629,8 +646,6 @@ function MainDashboard() {
                       <button key={id} onClick={() => { switchChain({ chainId: chainIdNum }); setIsNetworkListOpen(false); }}
                         className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${chainIdNum === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
                         <span>{config.name}</span>
-                        
-                        {/* ID-based Network Badge */}
                         {networkAlerts[chainIdNum] > 0 && (
                           <div className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]">
                             {networkAlerts[chainIdNum]}
@@ -652,6 +667,14 @@ function MainDashboard() {
               </div>
               <Wallet className="w-4 h-4 text-emerald-400" />
             </button>
+
+            <Link 
+              href="/profile" 
+              className="flex items-center justify-center p-2.5 bg-slate-800 border border-slate-700 rounded-2xl hover:bg-slate-700 transition-colors text-slate-300 hover:text-emerald-400 shadow-lg"
+              title="Profile Settings"
+            >
+              <User className="w-[18px] h-[18px]" />
+            </Link>
 
             <button onClick={logout} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-2xl border border-red-500/20 transition-all"><LogOut className="w-4 h-4" /></button>
           </div>
