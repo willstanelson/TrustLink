@@ -274,24 +274,16 @@ function MainDashboard() {
         const status   = db.status?.toLowerCase();
 
         let actionNeeded = false;
-        
-        // Asymmetric logic: Only alert if it's YOUR turn
-        if (isSeller && (status === 'secured' || status === 'accepted')) {
-          actionNeeded = true;
-        } else if (isBuyer && status === 'shipped') {
-          actionNeeded = true;
-        }
+        if (isSeller && (status === 'secured' || status === 'accepted')) actionNeeded = true;
+        else if (isBuyer && status === 'shipped') actionNeeded = true;
 
         if (actionNeeded) {
-          // Resolve string to unambiguous Chain ID
           const chainId = Number(
             Object.entries(CHAIN_CONFIG).find(
               ([, cfg]) => cfg.name === db.network || cfg.nativeSymbol === db.network
             )?.[0]
           );
-          if (chainId) {
-            alerts[chainId] = (alerts[chainId] || 0) + 1;
-          }
+          if (chainId) alerts[chainId] = (alerts[chainId] || 0) + 1;
         }
       }
     });

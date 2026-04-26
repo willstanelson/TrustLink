@@ -261,39 +261,90 @@ export default function OrderCard({
   useEffect(() => {
     if (!isSuccess) return;
 
-    if (actionRef.current === 'release' && !isFiat) {
-      fetch('/api/profile/increment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buyer: order.buyer, seller: order.seller }),
-      }).catch(err => console.error('profile/increment failed:', err));
+    const handleSuccess = async () => {
+      if (actionRef.current === 'release' && !isFiat) {
+        push('info', 'Verifying transaction on-chain...');
+        
+        try {
+          // Retrieve token for the secure endpoint
+          const token = await getAccessToken();
+          if (!token) throw new Error("Auth token missing");
 
-      if (peerEmail) {
-        sendNotification(
-          peerEmail,
-          'Funds Released!',
-          `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`,
-        );
+          const response = await fetch('/api/escrow/sync', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ 
+              orderId: dbOrderId, 
+              scId: order.scId, 
+              chainId: activeChainId 
+            })
+          });
+
+          const result = await response.json();
+
+          fetch('/api/profile/increment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buyer: order.buyer, seller: order.seller }),
+          }).catch(err => console.error('profile/increment failed:', err));
+
+          if (peerEmail) {
+            sendNotification(
+              peerEmail,
+              'Funds Released!',
+              `The buyer has released crypto funds from the smart contract for order ${displayId}. Check your wallet!`,
+            );
+          }
+
+          if (result.success) {
+            push('success', 'Funds released successfully!');
+            onUpdate(); // Deterministic UI refresh — no arbitrary timeout!
+          } else {
+            push('warning', 'Funds released, but status sync delayed. Refresh in a moment.');
+          }
+
+        } catch (err) {
+          console.error("Sync failed:", err);
+          push('warning', 'Funds released, but UI sync failed. Refresh manually.');
+        }
+
+      } else if (actionRef.current === 'dispute') {
+        try {
+          const token = await getAccessToken();
+          if (token) {
+            const response = await fetch('/api/escrow/sync', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+              },
+              body: JSON.stringify({ orderId: dbOrderId, scId: order.scId, chainId: activeChainId })
+            });
+            const result = await response.json();
+            if (result.success) onUpdate();
+          }
+        } catch (err) {
+          console.error("Dispute sync failed:", err);
+        }
+
+        if (peerEmail) {
+          sendNotification(peerEmail, 'Order Disputed 🚨', `A dispute has been raised on-chain for order ${displayId}.`);
+        }
+        push('warning', 'Dispute raised on-chain. An admin will review shortly.');
+
+      } else if (actionRef.current === 'cancel') {
+        push('info', 'Order cancelled. Locked funds will be returned to your wallet.');
+        onUpdate();
       }
-      push('success', 'Funds released successfully!');
 
-    } else if (actionRef.current === 'dispute') {
-      if (peerEmail) {
-        sendNotification(
-          peerEmail,
-          'Order Disputed 🚨',
-          `A dispute has been raised on-chain for order ${displayId}. An admin will review the chat logs and make a final ruling.`,
-        );
-      }
-      push('warning', 'Dispute raised on-chain. An admin will review shortly.');
+      actionRef.current = '';
+    };
 
-    } else if (actionRef.current === 'cancel') {
-      push('info', 'Order cancelled. Locked funds will be returned to your wallet.');
-    }
-
-    actionRef.current = '';
-    setTimeout(onUpdate, 2000);
-  }, [isSuccess, isFiat, order.buyer, order.seller, displayId, peerEmail, sendNotification, push, onUpdate]);
+    handleSuccess();
+  }, [isSuccess, isFiat, order.buyer, order.seller, displayId, peerEmail, sendNotification, push, onUpdate, dbOrderId, order.scId, activeChainId, getAccessToken]);
 
   const isBusy = isPending || isConfirming || isDbLoading;
 
