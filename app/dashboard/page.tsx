@@ -46,9 +46,8 @@ const BANKS = [
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 function MainDashboard() {
-  // 🚀 FIX 1: ALL HOOKS UNCONDITIONALLY AT THE TOP
   const { supabase, sessionReady, sessionLoading, sessionError, refreshSession } = useAuth();
-  const { login, authenticated, user, logout, linkEmail } = usePrivy();
+  const { login, authenticated, user, logout, linkEmail, getAccessToken } = usePrivy();
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -74,6 +73,7 @@ function MainDashboard() {
   const [accountName, setAccountName] = useState('');
   const [isResolving, setIsResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
+  const [autoFilled, setAutoFilled] = useState(false); // 🚀 FIX 4: Flag to prevent UI flashing
 
   const [dbOrders, setDbOrders] = useState<Record<number, any>>({});
   const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying');
@@ -112,7 +112,6 @@ function MainDashboard() {
     } catch (err) { console.error("Failed to send email notification", err); }
   }, []);
 
-  // 🚀 FIX 5: Stable refs for callbacks inside effects
   const showToastRef = useRef(showToast);
   const sendEmailRef = useRef(sendEmailNotification);
   useEffect(() => { showToastRef.current = showToast; }, [showToast]);
@@ -165,20 +164,12 @@ function MainDashboard() {
   });
   const count = totalEscrows ? Number(totalEscrows) : 0;
 
-  // 🚀 FIX 4: Securely mapping known DB IDs to prevent order hiding
+  // 🚀 FIX 2: Correctly mapping smart contract indices (removing db.id logic)
   const indexesToFetch = useMemo(() => {
-    if (!userAddress || Object.keys(dbOrders).length === 0) {
-      const idxs = [];
-      for (let i = count; i > 0 && idxs.length < 20; i--) idxs.push(i);
-      return idxs;
-    }
-    const dbScIds = Object.values(dbOrders)
-      .filter((db: any) => !db.paystack_ref && db.id)
-      .map((db: any) => db.id);
-    const globalFallback: number[] = [];
-    for (let i = count; i > 0 && globalFallback.length < 10; i--) globalFallback.push(i);
-    return [...new Set([...dbScIds, ...globalFallback])];
-  }, [count, dbOrders, userAddress]);
+    const idxs: number[] = [];
+    for (let i = count; i > 0 && idxs.length < 20; i--) idxs.push(i);
+    return idxs;
+  }, [count]);
 
   const { data: escrowsData, refetch: refetchOrders } = useReadContracts({
     contracts: indexesToFetch.map((id) => ({
@@ -187,7 +178,6 @@ function MainDashboard() {
     query: { refetchInterval: 30000 },
   });
 
-  // 🚀 FIX 2: Added internal sessionReady guard
   const fetchDbOrders = useCallback(async () => {
     if (!sessionReady) return;
     const { data } = await supabase.from('escrow_orders').select('*');
@@ -206,7 +196,12 @@ function MainDashboard() {
     fetchDbOrders();
   }, [refetchTotalEscrows, refetchOrders, refetchUsdc, refetchAllowance, selectedAsset.symbol, fetchDbOrders]);
 
-  // 🚀 FIX 3: Split Polling logic to save RPC quota
+  // 🚀 FIX 1: Immediate fetch on component mount
+  useEffect(() => {
+    if (sessionReady) fetchDbOrders();
+  }, [sessionReady, fetchDbOrders]);
+
+  // 8-second database polling
   useEffect(() => {
     const id = setInterval(() => {
       if (sessionReady) fetchDbOrders();
@@ -214,6 +209,7 @@ function MainDashboard() {
     return () => clearInterval(id);
   }, [sessionReady, fetchDbOrders]);
 
+  // 60-second blockchain polling
   useEffect(() => {
     const id = setInterval(() => {
       refetchTotalEscrows();
@@ -248,12 +244,44 @@ function MainDashboard() {
     }
   }, []);
 
+  // 🚀 FIX 4: Skipping Paystack resolution if data was just auto-filled
   useEffect(() => {
+    if (autoFilled) { 
+      setAutoFilled(false); 
+      return; 
+    } 
     if (accountNumber.length === 10 && bankCode) resolveBankAccount(accountNumber, bankCode);
     else { setAccountName(''); setResolveError(''); }
-  }, [accountNumber, bankCode, resolveBankAccount]);
+  }, [accountNumber, bankCode, resolveBankAccount, autoFilled]);
 
-  // 🚀 FIX 5: Stale-proof Paystack verification
+  // 🚀 AUTO-FILL BANK DETAILS MAGIC
+  useEffect(() => {
+    if (mode === 'fiat' && sellerEmail.includes('@') && sellerEmail.includes('.')) {
+      const timeoutId = setTimeout(async () => {
+        try {
+          const token = await getAccessToken();
+          if (!token) return;
+
+          const res = await fetch(`/api/profile/lookup?email=${encodeURIComponent(sellerEmail)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await res.json();
+          
+          if (data.success && data.profile) {
+            setBankCode(data.profile.bank_code);
+            setAccountNumber(data.profile.account_number);
+            setAccountName(data.profile.account_name);
+            setAutoFilled(true); // Flag to bypass the useEffect wiping bug
+            showToastRef.current("Seller's bank details auto-filled!", "success");
+          }
+        } catch (err) {
+          console.error("Auto-fill lookup failed", err);
+        }
+      }, 800);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [sellerEmail, mode, getAccessToken]);
+
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
     if (!trxref || !sessionReady) return;
@@ -552,8 +580,6 @@ function MainDashboard() {
   const hasEmailLinked    = !!(user?.email?.address || user?.google?.email || user?.apple?.email || user?.discord?.email);
   const formattedBalance = usdcBalance ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC` : '0.00 USDC';
 
-
-  // 🚀 FIX 1: EARLY RETURNS PLACED SAFELY AT THE BOTTOM AFTER ALL HOOKS
   if (sessionLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex flex-col items-center justify-center">

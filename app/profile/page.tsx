@@ -104,7 +104,7 @@ export default function ProfilePage() {
 
   // 🚀 Loading State UI
   if (isLoading) return (
-    <div className="min-h-screen bg-[#0B101B] flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center">
       <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
     </div>
   );
@@ -114,8 +114,9 @@ export default function ProfilePage() {
   const email = user.email?.address || 'No email linked';
 
   return (
-    <div className="min-h-screen pt-12 pb-12 px-4 sm:px-6">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] pt-12 pb-12 px-4 sm:px-6 text-white font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
+        {/* ... rest of your code ... */}
         
         {/* 🚀 Back Navigation */}
         <Link 
