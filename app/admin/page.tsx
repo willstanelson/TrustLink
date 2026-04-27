@@ -330,6 +330,7 @@ export default function AdminPage() {
       const token = await getAccessToken();
       const res = await fetch(ADMIN_API, {
         headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
       });
 
       if (!res.ok) {

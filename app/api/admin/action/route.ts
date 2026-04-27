@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PrivyClient } from '@privy-io/server-auth';
 import { createClient } from '@supabase/supabase-js';
 
+export const dynamic = 'force-dynamic'; // 🚀 ADD THIS TO BUST THE SERVER CACHE
+
+import { NextRequest, NextResponse } from 'next/server';
+import { PrivyClient } from '@privy-io/server-auth';
+import { createClient } from '@supabase/supabase-js';
+
 const privy = new PrivyClient(
   process.env.PRIVY_APP_ID!,
   process.env.PRIVY_APP_SECRET!,
