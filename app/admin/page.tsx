@@ -80,6 +80,7 @@ type AdminAction = {
   id: bigint;
   type: 'RELEASE' | 'REFUND' | 'NUKE' | 'DISPUTE';
   seller?: string;
+  buyer?: string; // 🚀 ADD THIS
   rawAmount?: bigint;
 };
 
@@ -415,22 +416,23 @@ export default function AdminPage() {
   }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
 
   const executeWrite = useCallback((action: AdminAction) => {
-    const functionName =
-      action.type === 'RELEASE' ? 'releaseMilestone' :
-      action.type === 'DISPUTE' ? 'raiseDispute' :
-      'cancelOrder';
+    let functionName = '';
+    let args: any[] = [];
 
-    const args =
-      action.type === 'RELEASE' && action.rawAmount !== undefined
-        ? [action.id, action.rawAmount]
-        : [action.id];
+    if (action.type === 'RELEASE') {
+      functionName = 'resolveDispute';
+      args = [action.id, action.seller]; // Winner is the seller
+    } else if (action.type === 'REFUND' || action.type === 'NUKE') {
+      functionName = 'resolveDispute';
+      args = [action.id, action.buyer]; // Winner is the buyer
+    }
 
     writeContract({
       chainId: activeChainId,
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
       functionName,
-      args: args as any, // Bypass strict tuple inference for dynamic args
+      args: args as any, 
     });
   }, [activeChainId, writeContract]);
 
@@ -837,9 +839,9 @@ export default function AdminPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex justify-end gap-2 flex-wrap">
-                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE', rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-emerald-900/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Force Release</button>
-                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Std. Refund</button>
-                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'NUKE', seller: order.seller, rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-red-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors flex items-center gap-1"><Skull className="w-3 h-3" /> Scam: Nuke</button>
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE', seller: order.seller, buyer: order.buyer, rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-emerald-900/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Force Release</button>
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND', seller: order.seller, buyer: order.buyer })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Std. Refund</button>
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'NUKE', seller: order.seller, buyer: order.buyer, rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-red-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors flex items-center gap-1"><Skull className="w-3 h-3" /> Scam: Nuke</button>
                         </div>
                       </td>
                     </tr>
@@ -885,13 +887,14 @@ export default function AdminPage() {
                       <td className="p-4">
                         <div className="flex justify-end gap-2 flex-wrap">
                           {order.status === 'ACTIVE' && (
-                            <>
-                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-red-400 text-xs font-bold rounded-lg transition-colors">Refund</button>
-                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-slate-800 hover:bg-amber-900/50 border border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 text-xs font-bold rounded-lg transition-colors">Flag Dispute</button>
-                            </>
+                            <span className="text-blue-400 text-xs font-bold flex items-center gap-1 justify-end">
+                              Awaiting Parties
+                            </span>
                           )}
                           {order.status === 'COMPLETED' && (
-                            <span className="text-slate-600 text-xs font-bold flex items-center gap-1 justify-end"><CheckCircle className="w-3 h-3" /> Finalized</span>
+                            <span className="text-slate-600 text-xs font-bold flex items-center gap-1 justify-end">
+                              <CheckCircle className="w-3 h-3" /> Finalized
+                            </span>
                           )}
                         </div>
                       </td>
@@ -934,7 +937,8 @@ export default function AdminPage() {
         )}
       </main>
 
-      {(isWritePending || isConfirming) && (
+     {/* Global transaction overlay */}
+      {((isWritePending || isConfirming) && adminAction) && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[250] flex items-center justify-center">
           <div className="text-center">
             <Loader2 className="w-12 h-12 animate-spin mx-auto mb-6 text-emerald-500" />
