@@ -28,6 +28,7 @@ import {
   Globe,
   ChevronDown,
   Award,
+  CreditCard,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
@@ -37,11 +38,14 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ADMIN_API = '/api/admin/action';
 
 const TAB_STYLES = {
-  PAYOUTS:  { active: 'border-emerald-500 text-emerald-400', badge: 'bg-emerald-500 text-slate-900' },
-  DISPUTES: { active: 'border-red-500 text-red-400',         badge: 'bg-red-500 text-white'         },
-  HISTORY:  { active: 'border-slate-400 text-slate-400',     badge: 'bg-slate-500 text-white'       },
-  CRYPTO:   { active: 'border-blue-500 text-blue-400',       badge: 'bg-blue-500 text-slate-900'    },
-  STAKING:  { active: 'border-purple-500 text-purple-400',   badge: 'bg-purple-500 text-white'      },
+  FIAT_PAYOUTS:    { active: 'border-emerald-500 text-emerald-400', badge: 'bg-emerald-500 text-slate-900' },
+  FIAT_DISPUTES:   { active: 'border-red-500 text-red-400',         badge: 'bg-red-500 text-white'         },
+  FIAT_HISTORY:    { active: 'border-slate-400 text-slate-400',     badge: 'bg-slate-500 text-white'       },
+  CRYPTO_DISPUTES: { active: 'border-orange-500 text-orange-400',   badge: 'bg-orange-500 text-white'      },
+  CRYPTO_HISTORY:  { active: 'border-blue-500 text-blue-400',       badge: 'bg-blue-500 text-slate-900'    },
+  GC_DISPUTES:     { active: 'border-pink-500 text-pink-400',       badge: 'bg-pink-500 text-white'        },
+  GC_HISTORY:      { active: 'border-indigo-500 text-indigo-400',   badge: 'bg-indigo-500 text-white'      },
+  STAKING:         { active: 'border-purple-500 text-purple-400',   badge: 'bg-purple-500 text-white'      },
 } as const;
 
 type FiatOrder = {
@@ -208,7 +212,7 @@ export default function AdminPage() {
   const networkDropdownRef = useRef<HTMLDivElement>(null);
 
   const [authStatus, setAuthStatus] = useState<'loading' | 'authorized' | 'unauthorized'>('loading');
-  const [activeTab, setActiveTab] = useState<'PAYOUTS' | 'DISPUTES' | 'HISTORY' | 'CRYPTO' | 'STAKING'>('PAYOUTS');
+  const [activeTab, setActiveTab] = useState<keyof typeof TAB_STYLES>('FIAT_PAYOUTS');
 
   const [fiatDisputes, setFiatDisputes] = useState<FiatOrder[]>([]);
   const [fiatPayouts, setFiatPayouts] = useState<FiatOrder[]>([]);
@@ -225,7 +229,7 @@ export default function AdminPage() {
     useWaitForTransactionReceipt({ hash: txHash });
 
   // ─────────────────────────────────────────────────────────────
-  // READ CONTRACT HOOKS (HOISTED TO FIX TYPE ERROR)
+  // HOISTED READ CONTRACTS
   // ─────────────────────────────────────────────────────────────
   const { data: totalEscrows } = useReadContract({
     abi: CONTRACT_ABI,
@@ -252,6 +256,9 @@ export default function AdminPage() {
     query: { enabled: authStatus === 'authorized', refetchInterval: 10000 },
   });
 
+  // ─────────────────────────────────────────────────────────────
+  // DERIVED STATE (Perfectly ordered below the hooks)
+  // ─────────────────────────────────────────────────────────────
   const cryptoOrders: CryptoOrder[] = useMemo(() => {
     if (!escrowsData) return [];
     return escrowsData.flatMap((result, index) => {
@@ -277,6 +284,20 @@ export default function AdminPage() {
       }];
     });
   }, [escrowsData, indexesToFetch, activeChain.nativeSymbol]);
+
+  const cryptoDisputes = useMemo(() => cryptoOrders.filter(o => o.status === 'DISPUTED'), [cryptoOrders]);
+  const cryptoHistory = useMemo(() => cryptoOrders.filter(o => o.status !== 'DISPUTED'), [cryptoOrders]);
+
+  const TABS = useMemo(() => [
+    { key: 'FIAT_PAYOUTS',    label: 'Pending Payouts', count: fiatPayouts.length },
+    { key: 'FIAT_DISPUTES',   label: 'Fiat Disputes',   count: fiatDisputes.length },
+    { key: 'FIAT_HISTORY',    label: 'Fiat History',    count: fiatHistory.length },
+    { key: 'CRYPTO_DISPUTES', label: 'Crypto Disputes', count: cryptoDisputes.length },
+    { key: 'CRYPTO_HISTORY',  label: 'Crypto History',  count: cryptoHistory.length },
+    { key: 'GC_DISPUTES',     label: 'GC Disputes',     count: 0 },
+    { key: 'GC_HISTORY',      label: 'GC History',      count: 0 },
+    { key: 'STAKING',         label: 'Proof-of-Stake',  count: 0 },
+  ], [fiatPayouts.length, fiatDisputes.length, fiatHistory.length, cryptoDisputes.length, cryptoHistory.length]);
 
   // ─────────────────────────────────────────────────────────────
   // ADMIN FETCH HELPER
@@ -333,8 +354,6 @@ export default function AdminPage() {
   // ─────────────────────────────────────────────────────────────
   // EFFECTS
   // ─────────────────────────────────────────────────────────────
-  
-  // Initial load
   useEffect(() => {
     if (!ready || !authenticated) {
       setAuthStatus(!authenticated ? 'unauthorized' : 'loading');
@@ -343,7 +362,6 @@ export default function AdminPage() {
     fetchFiatOrders();
   }, [ready, authenticated, fetchFiatOrders]);
 
-  // Network dropdown outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (networkDropdownRef.current && !networkDropdownRef.current.contains(e.target as Node)) {
@@ -354,7 +372,6 @@ export default function AdminPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isNetworkListOpen]);
 
-  // Write contract error handling
   useEffect(() => {
     if (writeError) {
       push('error', (writeError as any).shortMessage ?? writeError.message ?? 'Transaction write failed');
@@ -363,7 +380,6 @@ export default function AdminPage() {
     }
   }, [writeError, push]);
 
-  // Transaction receipt error
   useEffect(() => {
     if (txErrorOccurred && txError) {
       push('error', (txError as any).shortMessage ?? txError.message ?? 'Transaction failed');
@@ -372,12 +388,10 @@ export default function AdminPage() {
     }
   }, [txErrorOccurred, txError, push]);
 
-  // Clear pending action when modal is closed
   useEffect(() => {
     if (!adminAction) setPendingCryptoAction(null);
   }, [adminAction]);
 
-  // Transaction success (relies on refetchCrypto safely now)
   useEffect(() => {
     if (!isSuccess || !adminAction) return;
 
@@ -400,7 +414,6 @@ export default function AdminPage() {
     handlePostTx();
   }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
 
-  // Execute write function
   const executeWrite = useCallback((action: AdminAction) => {
     const functionName =
       action.type === 'RELEASE' ? 'releaseMilestone' :
@@ -417,11 +430,10 @@ export default function AdminPage() {
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
       functionName,
-      args: args as any, // 🚀 FIX: Add 'as any' to bypass the strict tuple inference
+      args: args as any, // Bypass strict tuple inference for dynamic args
     });
   }, [activeChainId, writeContract]);
 
-  // Chain switch waiter
   useEffect(() => {
     if (pendingCryptoAction && chainId === activeChainId) {
       const action = pendingCryptoAction;
@@ -430,7 +442,6 @@ export default function AdminPage() {
     }
   }, [pendingCryptoAction, chainId, activeChainId, executeWrite]);
 
-  // Main crypto action handler
   const executeCryptoAction = useCallback(async () => {
     if (!adminAction) return;
 
@@ -530,13 +541,9 @@ export default function AdminPage() {
     });
   };
 
-  const TABS = [
-    { key: 'PAYOUTS' as const, label: 'Pending Payouts', count: fiatPayouts.length },
-    { key: 'DISPUTES' as const, label: 'Fiat Disputes', count: fiatDisputes.length },
-    { key: 'HISTORY' as const, label: 'Fiat History', count: fiatHistory.length },
-    { key: 'CRYPTO' as const, label: 'Crypto Orders', count: cryptoOrders.length },
-    { key: 'STAKING' as const, label: 'Proof-of-Stake', count: 0 },
-  ];
+  // ─────────────────────────────────────────────────────────────
+  // RENDER 
+  // ─────────────────────────────────────────────────────────────
 
   if (authStatus === 'loading' || isConnecting || !ready) {
     return (
@@ -570,7 +577,6 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white pb-20 font-sans relative">
-      {/* NAV */}
       <nav className="border-b border-emerald-500/20 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="text-slate-400 hover:text-white transition-colors">
@@ -614,15 +620,14 @@ export default function AdminPage() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 mt-8">
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-6 border-b border-slate-800 mb-6 mt-8">
+        <div className="flex flex-wrap gap-4 border-b border-slate-800 mb-6 mt-8">
           {TABS.map(({ key, label, count: badgeCount }) => {
-            const styles = TAB_STYLES[key];
+            const styles = TAB_STYLES[key as keyof typeof TAB_STYLES];
             return (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
-                className={`text-lg font-bold pb-4 border-b-2 transition-all flex items-center gap-2 ${
+                onClick={() => setActiveTab(key as keyof typeof TAB_STYLES)}
+                className={`text-sm md:text-base font-bold pb-4 border-b-2 transition-all flex items-center gap-2 ${
                   activeTab === key ? styles.active : 'border-transparent text-slate-500 hover:text-slate-300'
                 }`}
               >
@@ -633,7 +638,7 @@ export default function AdminPage() {
           })}
         </div>
 
-        {activeTab === 'PAYOUTS' && (
+        {activeTab === 'FIAT_PAYOUTS' && (
           <div className="space-y-6 animate-in fade-in">
             {isLoadingFiat ? (
               <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>
@@ -710,7 +715,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'DISPUTES' && (
+        {activeTab === 'FIAT_DISPUTES' && (
           <div className="space-y-6 animate-in fade-in">
             {isLoadingFiat ? (
               <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-emerald-500 animate-spin" /></div>
@@ -761,7 +766,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'HISTORY' && (
+        {activeTab === 'FIAT_HISTORY' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto shadow-xl animate-in fade-in">
             <table className="w-full text-left min-w-[800px]">
               <thead className="bg-slate-950 text-slate-400 text-xs uppercase font-bold border-b border-slate-800">
@@ -799,7 +804,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === 'CRYPTO' && (
+        {activeTab === 'CRYPTO_DISPUTES' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto shadow-xl animate-in fade-in">
             <table className="w-full text-left min-w-[800px]">
               <thead className="bg-slate-950 text-slate-400 text-xs uppercase font-bold border-b border-slate-800">
@@ -812,10 +817,56 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {cryptoOrders.length === 0 ? (
-                  <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No blockchain escrows found.</td></tr>
+                {cryptoDisputes.length === 0 ? (
+                  <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No active blockchain disputes.</td></tr>
                 ) : (
-                  cryptoOrders.map((order) => (
+                  cryptoDisputes.map((order) => (
+                    <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
+                      <td className="p-4 font-mono text-slate-300">#{order.id}</td>
+                      <td className="p-4"><div className="font-bold">{order.amount} {order.symbol}</div></td>
+                      <td className="p-4">
+                        <div className="flex flex-col gap-1.5 font-mono">
+                          <span className="text-emerald-400/80 text-[10px] break-all">BUY: {order.buyer}</span>
+                          <span className="text-blue-400/80 text-[10px] break-all">SEL: {order.seller}</span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className="px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase bg-orange-500/10 text-orange-400 border border-orange-500/30">
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex justify-end gap-2 flex-wrap">
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE', rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-emerald-900/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Force Release</button>
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Std. Refund</button>
+                          <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'NUKE', seller: order.seller, rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-red-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors flex items-center gap-1"><Skull className="w-3 h-3" /> Scam: Nuke</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'CRYPTO_HISTORY' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto shadow-xl animate-in fade-in">
+            <table className="w-full text-left min-w-[800px]">
+              <thead className="bg-slate-950 text-slate-400 text-xs uppercase font-bold border-b border-slate-800">
+                <tr>
+                  <th className="p-4">ID</th>
+                  <th className="p-4">Value</th>
+                  <th className="p-4">Participants</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4 text-right">Admin Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {cryptoHistory.length === 0 ? (
+                  <tr><td colSpan={5} className="p-10 text-center text-slate-500 italic">No blockchain history found.</td></tr>
+                ) : (
+                  cryptoHistory.map((order) => (
                     <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
                       <td className="p-4 font-mono text-slate-300">#{order.id}</td>
                       <td className="p-4"><div className="font-bold">{order.amount} {order.symbol}</div></td>
@@ -828,7 +879,6 @@ export default function AdminPage() {
                       <td className="p-4">
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${
                           order.status === 'COMPLETED' ? 'bg-slate-800 text-slate-400 border border-slate-700' :
-                          order.status === 'DISPUTED' ? 'bg-red-500/10 text-red-400 border border-red-500/30' :
                           'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                         }`}>{order.status}</span>
                       </td>
@@ -838,13 +888,6 @@ export default function AdminPage() {
                             <>
                               <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-red-400 text-xs font-bold rounded-lg transition-colors">Refund</button>
                               <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-slate-800 hover:bg-amber-900/50 border border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 text-xs font-bold rounded-lg transition-colors">Flag Dispute</button>
-                            </>
-                          )}
-                          {order.status === 'DISPUTED' && (
-                            <>
-                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'RELEASE', rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-emerald-900/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Force Release</button>
-                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors">Std. Refund</button>
-                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'NUKE', seller: order.seller, rawAmount: order.rawAmount })} className="px-3 py-1.5 bg-red-900/40 hover:bg-red-600 border border-red-500/50 text-red-400 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded-lg transition-colors flex items-center gap-1"><Skull className="w-3 h-3" /> Scam: Nuke</button>
                             </>
                           )}
                           {order.status === 'COMPLETED' && (
@@ -857,6 +900,26 @@ export default function AdminPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {activeTab === 'GC_DISPUTES' && (
+          <div className="space-y-6 animate-in fade-in">
+            <div className="bg-slate-800/30 border border-dashed border-pink-500/30 rounded-3xl p-12 text-center flex flex-col items-center gap-4">
+              <CreditCard className="w-16 h-16 text-pink-500/50" />
+              <h3 className="text-xl font-bold text-white">Gift Card Disputes</h3>
+              <p className="text-slate-400 max-w-md mx-auto">Gift Card trading logic is pending deployment. This console will arbitrate gift card escrow conflicts.</p>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'GC_HISTORY' && (
+          <div className="space-y-6 animate-in fade-in">
+            <div className="bg-slate-800/30 border border-dashed border-indigo-500/30 rounded-3xl p-12 text-center flex flex-col items-center gap-4">
+              <CreditCard className="w-16 h-16 text-indigo-500/50" />
+              <h3 className="text-xl font-bold text-white">Gift Card History</h3>
+              <p className="text-slate-400 max-w-md mx-auto">Gift Card trading logic is pending deployment. Historical gift card records will appear here.</p>
+            </div>
           </div>
         )}
 
