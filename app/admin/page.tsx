@@ -416,24 +416,31 @@ export default function AdminPage() {
   }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
 
   const executeWrite = useCallback((action: AdminAction) => {
-    let functionName = '';
-    let args: any[] = [];
-
     if (action.type === 'RELEASE') {
-      functionName = 'resolveDispute';
-      args = [action.id, action.seller]; // Winner is the seller
+      writeContract({
+        chainId: activeChainId,
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'resolveDispute', // 🚀 Explicit literal
+        args: [action.id, action.seller] as any, 
+      });
     } else if (action.type === 'REFUND' || action.type === 'NUKE') {
-      functionName = 'resolveDispute';
-      args = [action.id, action.buyer]; // Winner is the buyer
+      writeContract({
+        chainId: activeChainId,
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'resolveDispute', // 🚀 Explicit literal
+        args: [action.id, action.buyer] as any, 
+      });
+    } else if (action.type === 'DISPUTE') {
+      writeContract({
+        chainId: activeChainId,
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'raiseDispute', // 🚀 Explicit literal
+        args: [action.id] as any,
+      });
     }
-
-    writeContract({
-      chainId: activeChainId,
-      address: CONTRACT_ADDRESS,
-      abi: CONTRACT_ABI,
-      functionName,
-      args: args as any, 
-    });
   }, [activeChainId, writeContract]);
 
   useEffect(() => {
