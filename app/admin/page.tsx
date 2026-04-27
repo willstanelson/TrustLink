@@ -407,7 +407,7 @@ export default function AdminPage() {
       action.type === 'DISPUTE' ? 'raiseDispute' :
       'cancelOrder';
 
-    const args: any[] =
+    const args =
       action.type === 'RELEASE' && action.rawAmount !== undefined
         ? [action.id, action.rawAmount]
         : [action.id];
@@ -417,7 +417,7 @@ export default function AdminPage() {
       address: CONTRACT_ADDRESS,
       abi: CONTRACT_ABI,
       functionName,
-      args,
+      args: args as any, // 🚀 FIX: Add 'as any' to bypass the strict tuple inference
     });
   }, [activeChainId, writeContract]);
 
