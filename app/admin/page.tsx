@@ -322,15 +322,23 @@ export default function AdminPage() {
   );
 
   // ─────────────────────────────────────────────────────────────
-  // FIAT ORDERS FETCH
+  // FIAT ORDERS FETCH – Reliable Fresh Data
   // ─────────────────────────────────────────────────────────────
   const fetchFiatOrders = useCallback(async () => {
     setIsLoadingFiat(true);
+
     try {
       const token = await getAccessToken();
+
       const res = await fetch(ADMIN_API, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
+        method: 'GET',
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        },
+        cache: 'no-store',           // Force fresh request
+        next: { revalidate: 0 },     // Extra safety for Next.js
       });
 
       if (!res.ok) {
@@ -346,11 +354,16 @@ export default function AdminPage() {
 
       setFiatDisputes(allOrders.filter((o) => o.status === 'disputed'));
       setFiatPayouts(allOrders.filter((o) => o.status === 'processing_payout'));
-      setFiatHistory(allOrders.filter((o) => !['awaiting_payment', 'disputed', 'processing_payout'].includes(o.status)));
+      
+      // Explicitly exclude active/pending states from history
+      setFiatHistory(allOrders.filter((o) => 
+        !['awaiting_payment', 'disputed', 'processing_payout'].includes(o.status)
+      ));
 
       setAuthStatus('authorized');
     } catch (err: any) {
-      push('error', `Failed to load orders: ${err.message}`);
+      console.error('fetchFiatOrders error:', err);
+      push('error', `Failed to load orders: ${err.message || 'Unknown error'}`);
     } finally {
       setIsLoadingFiat(false);
     }
