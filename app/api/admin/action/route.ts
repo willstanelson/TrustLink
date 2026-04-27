@@ -1,30 +1,17 @@
-// app/api/admin/action/route.ts
-//
-// ⚠️  REQUIRED ENV VARS (server-side only — never NEXT_PUBLIC_):
-//   PRIVY_APP_ID          – from your Privy dashboard
-//   PRIVY_APP_SECRET      – from your Privy dashboard
-//   ADMIN_WALLETS         – comma-separated lowercase wallet addresses
-//   ADMIN_EMAILS          – comma-separated lowercase email addresses
-//   NEXT_PUBLIC_SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY  – the service-role key, NOT the anon key
-
 import { NextRequest, NextResponse } from 'next/server';
 import { PrivyClient } from '@privy-io/server-auth';
 import { createClient } from '@supabase/supabase-js';
 
-// ── Privy server client ────────────────────────────────────────────────────
 const privy = new PrivyClient(
   process.env.PRIVY_APP_ID!,
   process.env.PRIVY_APP_SECRET!,
 );
 
-// ── Supabase with service-role key (bypasses RLS — admin only) ─────────────
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-// ── Admin lists live ONLY on the server ────────────────────────────────────
 const ADMIN_WALLETS = (process.env.ADMIN_WALLETS ?? '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -35,7 +22,6 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? '')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
-// ── Auth guard ─────────────────────────────────────────────────────────────
 async function verifyAdmin(req: NextRequest): Promise<boolean> {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) return false;
@@ -45,8 +31,8 @@ async function verifyAdmin(req: NextRequest): Promise<boolean> {
     const { userId } = await privy.verifyAuthToken(token);
     const user = await privy.getUser(userId);
 
-    const email  = (user.email?.address ?? (user as any).google?.email ?? '').toLowerCase();
-    const wallet = (user.wallet?.address ?? '').toLowerCase();
+    const email = (user.email?.address ?? (user as any).google?.email ?? '').toLowerCase().trim();
+    const wallet = (user.wallet?.address ?? '').toLowerCase().trim();
 
     return ADMIN_EMAILS.includes(email) || ADMIN_WALLETS.includes(wallet);
   } catch {
@@ -54,94 +40,156 @@ async function verifyAdmin(req: NextRequest): Promise<boolean> {
   }
 }
 
-// ── Action types ───────────────────────────────────────────────────────────
-type ActionBody =
-  | { actionType: 'VERIFY' }
-  | { actionType: 'RESOLVE_DISPUTE';  orderId: number; resolution: 'completed' | 'refunded'; nukeSellerId?: string }
-  | { actionType: 'COMPLETE_PAYOUT';  orderId: number }
-  | { actionType: 'NUKE_CRYPTO_SELLER'; sellerAddress: string };
+async function nukeProfile(sellerId: string) {
+  const normalizedId = sellerId.toLowerCase().trim();
+  if (!normalizedId) throw new Error('Invalid seller identifier');
 
-// ── GET – lightweight auth check for the admin page bootstrap ──────────────
-export async function GET(req: NextRequest) {
-  const isAdmin = await verifyAdmin(req);
-  if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  return NextResponse.json({ ok: true });
+  const isEmail = normalizedId.includes('@');
+
+  const { data, error: fetchError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, severe_strikes')
+    .ilike(isEmail ? 'email_address' : 'wallet_address', normalizedId)
+    .single();
+
+  if (fetchError || !data) {
+    const insertPayload = isEmail
+      ? { email_address: normalizedId, severe_strikes: 1 }
+      : { wallet_address: normalizedId, severe_strikes: 1 };
+
+    // NOTE: Requires UNIQUE constraint on email_address and wallet_address in the profiles table.
+    const { error: insertError } = await supabaseAdmin
+      .from('profiles')
+      .upsert(insertPayload, {
+        onConflict: isEmail ? 'email_address' : 'wallet_address',
+      });
+
+    if (insertError) throw new Error(`Failed to create profile: ${insertError.message}`);
+    return;
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('profiles')
+    .update({ severe_strikes: (data.severe_strikes ?? 0) + 1 })
+    .eq('id', data.id);
+
+  if (updateError) throw new Error(`Profile nuke failed: ${updateError.message}`);
 }
 
-// ── POST – all mutating admin actions ──────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const isAdmin = await verifyAdmin(req);
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  try {
+    const { data: orders, error } = await supabaseAdmin
+      .from('escrow_orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ ok: true, orders });
+  } catch (err: any) {
+    console.error('[admin/action GET] error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   const isAdmin = await verifyAdmin(req);
-  if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
-  let body: ActionBody;
+  let body: any;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  // ── Helper: increment severe_strikes on a seller profile ──────────────
-  const nukeProfile = async (sellerId: string) => {
-    const { data } = await supabaseAdmin
-      .from('profiles')
-      .select('severe_strikes')
-      .eq('id', sellerId.toLowerCase())
-      .single();
-
-    const { error } = await supabaseAdmin
-      .from('profiles')
-      .update({ severe_strikes: (data?.severe_strikes ?? 0) + 1 })
-      .eq('id', sellerId.toLowerCase());
-
-    if (error) throw new Error(`Profile nuke failed: ${error.message}`);
-  };
-
   try {
     switch (body.actionType) {
-
-      // ── Resolve a fiat dispute ─────────────────────────────────────────
       case 'RESOLVE_DISPUTE': {
         const { orderId, resolution, nukeSellerId } = body;
+
+        if (!Number.isInteger(Number(orderId)) || Number(orderId) <= 0) {
+          return NextResponse.json({ error: 'Invalid orderId' }, { status: 400 });
+        }
+
+        if (!['completed', 'refunded'].includes(resolution)) {
+          return NextResponse.json({ error: 'Invalid resolution' }, { status: 400 });
+        }
+
+        const { data: order, error: fetchError } = await supabaseAdmin
+          .from('escrow_orders')
+          .select('status')
+          .eq('id', orderId)
+          .single();
+
+        if (fetchError || !order) throw new Error(fetchError?.message ?? 'Order not found');
+
+        if (order.status !== 'disputed') {
+          return NextResponse.json({ error: 'Order is not in disputed state' }, { status: 409 });
+        }
 
         if (nukeSellerId) await nukeProfile(nukeSellerId);
 
         const { error } = await supabaseAdmin
           .from('escrow_orders')
-          .update({ status: resolution })
+          .update({
+            status: resolution,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', orderId);
 
         if (error) throw new Error(error.message);
         return NextResponse.json({ success: true });
       }
 
-      // ── Complete a pending manual payout ──────────────────────────────
       case 'COMPLETE_PAYOUT': {
         const { orderId } = body;
 
+        if (!Number.isInteger(Number(orderId)) || Number(orderId) <= 0) {
+          return NextResponse.json({ error: 'Invalid orderId' }, { status: 400 });
+        }
+
         const { data: order, error: fetchError } = await supabaseAdmin
           .from('escrow_orders')
-          .select('amount, released_amount')
+          .select('amount, status')
           .eq('id', orderId)
           .single();
 
-        if (fetchError) throw new Error(fetchError.message);
+        if (fetchError || !order) throw new Error(fetchError?.message ?? 'Order not found');
 
-        const released = Number(order.released_amount ?? order.amount);
-        const total    = Number(order.amount);
-        const newStatus = released < total ? 'partially_released' : 'completed';
+        if (['completed', 'refunded'].includes(order.status)) {
+          return NextResponse.json({ error: 'Order already finalised' }, { status: 409 });
+        }
+
+        const total = Number(order.amount ?? 0);
 
         const { error } = await supabaseAdmin
           .from('escrow_orders')
-          .update({ status: newStatus })
+          .update({
+            status: 'completed',
+            updated_at: new Date().toISOString(),
+            released_amount: total,
+          })
           .eq('id', orderId);
 
         if (error) throw new Error(error.message);
-        return NextResponse.json({ success: true, newStatus });
+        return NextResponse.json({ success: true, newStatus: 'completed' });
       }
 
-      // ── Nuke a crypto seller's trust score ────────────────────────────
       case 'NUKE_CRYPTO_SELLER': {
-        await nukeProfile(body.sellerAddress);
+        const { sellerAddress } = body;
+        if (!sellerAddress || typeof sellerAddress !== 'string') {
+          return NextResponse.json({ error: 'Invalid sellerAddress' }, { status: 400 });
+        }
+        await nukeProfile(sellerAddress);
         return NextResponse.json({ success: true });
       }
 
@@ -149,7 +197,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Unknown actionType' }, { status: 400 });
     }
   } catch (err: any) {
-    console.error('[admin/action] error:', err);
+    console.error('[admin/action POST] error:', err);
     return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 });
   }
 }
