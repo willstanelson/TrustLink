@@ -164,14 +164,12 @@ function ConfirmModal({ config, onClose }: { config: ConfirmConfig; onClose: () 
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   };
-
   return (
     <button
       onClick={handleCopy}
@@ -185,26 +183,27 @@ function CopyButton({ text }: { text: string }) {
 
 function calculateNetPayout(grossAmount: number) {
   const platformFee = grossAmount * 0.01;
-
   let paystackFee = grossAmount * 0.015;
   if (grossAmount >= 2500) paystackFee += 100;
   if (paystackFee > 2000) paystackFee = 2000;
-
   const netPayout = grossAmount - platformFee - paystackFee;
   return { netPayout, platformFee, paystackFee };
 }
 
+// ===================================================================
+// MAIN COMPONENT
+// ===================================================================
 export default function AdminPage() {
   const { isConnecting } = useAccount();
   const { ready, authenticated, getAccessToken } = usePrivy();
   const router = useRouter();
-
   const { toasts, dismiss, push } = useToast();
 
-  const { switchChain, switchChainAsync } = useSwitchChain();
+  const { switchChainAsync } = useSwitchChain();
   const chainId = useChainId();
   const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
   const activeChain = CHAIN_CONFIG[activeChainId] ?? CHAIN_CONFIG[9746];
+
   const [isNetworkListOpen, setIsNetworkListOpen] = useState(false);
   const networkDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -225,155 +224,9 @@ export default function AdminPage() {
   const { isLoading: isConfirming, isSuccess, isError: txErrorOccurred, error: txError } =
     useWaitForTransactionReceipt({ hash: txHash });
 
-  const adminFetch = useCallback(
-    async (body: object): Promise<Response> => {
-      const token = await getAccessToken();
-      return fetch(ADMIN_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-    },
-    [getAccessToken]
-  );
-
-  const fetchFiatOrders = useCallback(async () => {
-    setIsLoadingFiat(true);
-    try {
-      const token = await getAccessToken();
-      const res = await fetch(ADMIN_API, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) {
-        if (res.status === 403) {
-          setAuthStatus('unauthorized');
-          return;
-        }
-        throw new Error(`Server error: ${res.status}`);
-      }
-
-      const json = await res.json();
-      const allOrders = (json.orders ?? []) as FiatOrder[];
-
-      setFiatDisputes(allOrders.filter((o) => o.status === 'disputed'));
-      setFiatPayouts(allOrders.filter((o) => o.status === 'processing_payout'));
-      setFiatHistory(allOrders.filter((o) => o.status !== 'awaiting_payment'));
-
-      setAuthStatus('authorized');
-    } catch (err: any) {
-      push('error', `Failed to load orders: ${err.message}`);
-    } finally {
-      setIsLoadingFiat(false);
-    }
-  }, [getAccessToken, push]);
-
-  useEffect(() => {
-    if (!ready || !authenticated) {
-      setAuthStatus(!authenticated ? 'unauthorized' : 'loading');
-      return;
-    }
-    fetchFiatOrders();
-  }, [ready, authenticated, fetchFiatOrders]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (networkDropdownRef.current && !networkDropdownRef.current.contains(e.target as Node)) {
-        setIsNetworkListOpen(false);
-      }
-    };
-    if (isNetworkListOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isNetworkListOpen]);
-
-  useEffect(() => {
-    if (writeError) {
-      push('error', (writeError as any).shortMessage ?? writeError.message ?? 'Transaction write failed');
-      setAdminAction(null);
-      setPendingCryptoAction(null);
-    }
-  }, [writeError, push]);
-
-  useEffect(() => {
-    if (txErrorOccurred && txError) {
-      push('error', (txError as any).shortMessage ?? txError.message ?? 'Transaction failed');
-      setAdminAction(null);
-      setPendingCryptoAction(null);
-    }
-  }, [txErrorOccurred, txError, push]);
-
-  useEffect(() => {
-    if (!adminAction) setPendingCryptoAction(null);
-  }, [adminAction]);
-
-  useEffect(() => {
-    if (!isSuccess || !adminAction) return;
-
-    const handlePostTx = async () => {
-      if (adminAction.type === 'NUKE' && adminAction.seller) {
-        try {
-          await adminFetch({ actionType: 'NUKE_CRYPTO_SELLER', sellerAddress: adminAction.seller });
-        } catch (err) {
-          console.error('Nuke profile update failed:', err);
-          push('warning', 'On-chain success, but failed to update seller profile');
-        }
-      }
-      push('success', `Order #${adminAction.id} ${adminAction.type} executed successfully.`);
-      setAdminAction(null);
-      setPendingCryptoAction(null);
-      refetchCrypto();
-      fetchFiatOrders();
-    };
-
-    handlePostTx();
-  }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
-
-  const executeWrite = useCallback((action: AdminAction) => {
-    const functionName =
-      action.type === 'RELEASE' ? 'releaseMilestone' :
-      action.type === 'DISPUTE' ? 'raiseDispute' :
-      'cancelOrder';
-
-    const args: any[] =
-      action.type === 'RELEASE' && action.rawAmount !== undefined
-        ? [action.id, action.rawAmount]
-        : [action.id];
-
-    writeContract({
-      chainId: activeChainId,
-      address: CONTRACT_ADDRESS,
-      abi: CONTRACT_ABI,
-      functionName,
-      args,
-    });
-  }, [activeChainId, writeContract]);
-
-  useEffect(() => {
-    if (pendingCryptoAction && chainId === activeChainId) {
-      const action = pendingCryptoAction;
-      setPendingCryptoAction(null);
-      executeWrite(action);
-    }
-  }, [pendingCryptoAction, chainId, activeChainId, executeWrite]);
-
-  const executeCryptoAction = useCallback(async () => {
-    if (!adminAction) return;
-
-    if (chainId !== activeChainId) {
-      try {
-        await switchChainAsync({ chainId: activeChainId });
-        setPendingCryptoAction(adminAction);
-      } catch {
-        push('error', 'Failed to switch network. Please try again.');
-      }
-      return;
-    }
-    executeWrite(adminAction);
-  }, [adminAction, chainId, activeChainId, switchChainAsync, executeWrite, push]);
-
+  // ─────────────────────────────────────────────────────────────
+  // READ CONTRACT HOOKS (HOISTED TO FIX TYPE ERROR)
+  // ─────────────────────────────────────────────────────────────
   const { data: totalEscrows } = useReadContract({
     abi: CONTRACT_ABI,
     address: CONTRACT_ADDRESS,
@@ -425,13 +278,185 @@ export default function AdminPage() {
     });
   }, [escrowsData, indexesToFetch, activeChain.nativeSymbol]);
 
+  // ─────────────────────────────────────────────────────────────
+  // ADMIN FETCH HELPER
+  // ─────────────────────────────────────────────────────────────
+  const adminFetch = useCallback(
+    async (body: object): Promise<Response> => {
+      const token = await getAccessToken();
+      return fetch(ADMIN_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    },
+    [getAccessToken]
+  );
+
+  // ─────────────────────────────────────────────────────────────
+  // FIAT ORDERS FETCH
+  // ─────────────────────────────────────────────────────────────
+  const fetchFiatOrders = useCallback(async () => {
+    setIsLoadingFiat(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(ADMIN_API, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        if (res.status === 403) {
+          setAuthStatus('unauthorized');
+          return;
+        }
+        throw new Error(`Server error: ${res.status}`);
+      }
+
+      const json = await res.json();
+      const allOrders = (json.orders ?? []) as FiatOrder[];
+
+      setFiatDisputes(allOrders.filter((o) => o.status === 'disputed'));
+      setFiatPayouts(allOrders.filter((o) => o.status === 'processing_payout'));
+      setFiatHistory(allOrders.filter((o) => o.status !== 'awaiting_payment'));
+
+      setAuthStatus('authorized');
+    } catch (err: any) {
+      push('error', `Failed to load orders: ${err.message}`);
+    } finally {
+      setIsLoadingFiat(false);
+    }
+  }, [getAccessToken, push]);
+
+  // ─────────────────────────────────────────────────────────────
+  // EFFECTS
+  // ─────────────────────────────────────────────────────────────
+  
+  // Initial load
+  useEffect(() => {
+    if (!ready || !authenticated) {
+      setAuthStatus(!authenticated ? 'unauthorized' : 'loading');
+      return;
+    }
+    fetchFiatOrders();
+  }, [ready, authenticated, fetchFiatOrders]);
+
+  // Network dropdown outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (networkDropdownRef.current && !networkDropdownRef.current.contains(e.target as Node)) {
+        setIsNetworkListOpen(false);
+      }
+    };
+    if (isNetworkListOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isNetworkListOpen]);
+
+  // Write contract error handling
+  useEffect(() => {
+    if (writeError) {
+      push('error', (writeError as any).shortMessage ?? writeError.message ?? 'Transaction write failed');
+      setAdminAction(null);
+      setPendingCryptoAction(null);
+    }
+  }, [writeError, push]);
+
+  // Transaction receipt error
+  useEffect(() => {
+    if (txErrorOccurred && txError) {
+      push('error', (txError as any).shortMessage ?? txError.message ?? 'Transaction failed');
+      setAdminAction(null);
+      setPendingCryptoAction(null);
+    }
+  }, [txErrorOccurred, txError, push]);
+
+  // Clear pending action when modal is closed
+  useEffect(() => {
+    if (!adminAction) setPendingCryptoAction(null);
+  }, [adminAction]);
+
+  // Transaction success (relies on refetchCrypto safely now)
+  useEffect(() => {
+    if (!isSuccess || !adminAction) return;
+
+    const handlePostTx = async () => {
+      if (adminAction.type === 'NUKE' && adminAction.seller) {
+        try {
+          await adminFetch({ actionType: 'NUKE_CRYPTO_SELLER', sellerAddress: adminAction.seller });
+        } catch (err) {
+          console.error('Nuke profile update failed:', err);
+          push('warning', 'On-chain success, but failed to update seller profile');
+        }
+      }
+      push('success', `Order #${adminAction.id} ${adminAction.type} executed successfully.`);
+      setAdminAction(null);
+      setPendingCryptoAction(null);
+      refetchCrypto();
+      fetchFiatOrders();
+    };
+
+    handlePostTx();
+  }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
+
+  // Execute write function
+  const executeWrite = useCallback((action: AdminAction) => {
+    const functionName =
+      action.type === 'RELEASE' ? 'releaseMilestone' :
+      action.type === 'DISPUTE' ? 'raiseDispute' :
+      'cancelOrder';
+
+    const args: any[] =
+      action.type === 'RELEASE' && action.rawAmount !== undefined
+        ? [action.id, action.rawAmount]
+        : [action.id];
+
+    writeContract({
+      chainId: activeChainId,
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
+      functionName,
+      args,
+    });
+  }, [activeChainId, writeContract]);
+
+  // Chain switch waiter
+  useEffect(() => {
+    if (pendingCryptoAction && chainId === activeChainId) {
+      const action = pendingCryptoAction;
+      setPendingCryptoAction(null);
+      executeWrite(action);
+    }
+  }, [pendingCryptoAction, chainId, activeChainId, executeWrite]);
+
+  // Main crypto action handler
+  const executeCryptoAction = useCallback(async () => {
+    if (!adminAction) return;
+
+    if (chainId !== activeChainId) {
+      try {
+        await switchChainAsync({ chainId: activeChainId });
+        setPendingCryptoAction(adminAction);
+      } catch {
+        push('error', 'Failed to switch network. Please try again.');
+      }
+      return;
+    }
+    executeWrite(adminAction);
+  }, [adminAction, chainId, activeChainId, switchChainAsync, executeWrite, push]);
+
+
+  // ─────────────────────────────────────────────────────────────
+  // HELPER FUNCTIONS 
+  // ─────────────────────────────────────────────────────────────
+
   const completePayout = async (order: FiatOrder) => {
     setBusyOrderId(order.id);
     try {
       const res = await adminFetch({ actionType: 'COMPLETE_PAYOUT', orderId: order.id });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Unknown error');
-
       push('success', `Order #${order.id} marked as ${json.newStatus}.`);
       fetchFiatOrders();
     } catch (err: any) {
@@ -455,11 +480,7 @@ export default function AdminPage() {
     });
   };
 
-  const resolveDispute = async (
-    order: FiatOrder,
-    resolution: 'completed' | 'refunded',
-    nuke: boolean,
-  ) => {
+  const resolveDispute = async (order: FiatOrder, resolution: 'completed' | 'refunded', nuke: boolean) => {
     setBusyOrderId(order.id);
     try {
       const res = await adminFetch({
@@ -485,8 +506,8 @@ export default function AdminPage() {
   const confirmResolveDispute = (order: FiatOrder, resolution: 'completed' | 'refunded', nuke = false) => {
     const labels = {
       seller: { label: 'Rule for Seller', body: `Release locked funds to the seller for order #${order.id}?` },
-      refund:  { label: 'Issue Refund',    body: `Refund the buyer for order #${order.id}? This cannot be undone.` },
-      nuke:    {
+      refund: { label: 'Issue Refund', body: `Refund the buyer for order #${order.id}? This cannot be undone.` },
+      nuke: {
         label: 'Nuke Seller & Refund',
         body: (
           <>
@@ -549,7 +570,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white pb-20 font-sans relative">
-      
+      {/* NAV */}
       <nav className="border-b border-emerald-500/20 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="text-slate-400 hover:text-white transition-colors">
@@ -593,6 +614,7 @@ export default function AdminPage() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 mt-8">
+        {/* Tabs */}
         <div className="flex flex-wrap gap-6 border-b border-slate-800 mb-6 mt-8">
           {TABS.map(({ key, label, count: badgeCount }) => {
             const styles = TAB_STYLES[key];
