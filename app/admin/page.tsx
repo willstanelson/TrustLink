@@ -80,7 +80,7 @@ type AdminAction = {
   id: bigint;
   type: 'RELEASE' | 'REFUND' | 'NUKE' | 'DISPUTE';
   seller?: string;
-  buyer?: string; // 🚀 ADD THIS
+  buyer?: string;
   rawAmount?: bigint;
 };
 
@@ -222,8 +222,11 @@ export default function AdminPage() {
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
 
   const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
+
+  // The Master State Handoff
   const [adminAction, setAdminAction] = useState<AdminAction | null>(null);
-  const [pendingCryptoAction, setPendingCryptoAction] = useState<AdminAction | null>(null);
+  const [activeTxAction, setActiveTxAction] = useState<AdminAction | null>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
 
   const { writeContract, data: txHash, isPending: isWritePending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: txErrorOccurred, error: txError } =
@@ -258,7 +261,7 @@ export default function AdminPage() {
   });
 
   // ─────────────────────────────────────────────────────────────
-  // DERIVED STATE (Perfectly ordered below the hooks)
+  // DERIVED STATE
   // ─────────────────────────────────────────────────────────────
   const cryptoOrders: CryptoOrder[] = useMemo(() => {
     if (!escrowsData) return [];
@@ -342,7 +345,7 @@ export default function AdminPage() {
 
       setFiatDisputes(allOrders.filter((o) => o.status === 'disputed'));
       setFiatPayouts(allOrders.filter((o) => o.status === 'processing_payout'));
-      setFiatHistory(allOrders.filter((o) => o.status !== 'awaiting_payment'));
+      setFiatHistory(allOrders.filter((o) => !['awaiting_payment', 'disputed', 'processing_payout'].includes(o.status)));
 
       setAuthStatus('authorized');
     } catch (err: any) {
@@ -376,96 +379,93 @@ export default function AdminPage() {
   useEffect(() => {
     if (writeError) {
       push('error', (writeError as any).shortMessage ?? writeError.message ?? 'Transaction write failed');
-      setAdminAction(null);
-      setPendingCryptoAction(null);
+      setActiveTxAction(null);
     }
   }, [writeError, push]);
 
   useEffect(() => {
     if (txErrorOccurred && txError) {
       push('error', (txError as any).shortMessage ?? txError.message ?? 'Transaction failed');
-      setAdminAction(null);
-      setPendingCryptoAction(null);
+      setActiveTxAction(null);
     }
   }, [txErrorOccurred, txError, push]);
 
   useEffect(() => {
-    if (!adminAction) setPendingCryptoAction(null);
-  }, [adminAction]);
-
-  useEffect(() => {
-    if (!isSuccess || !adminAction) return;
+    if (!isSuccess || !activeTxAction) return;
 
     const handlePostTx = async () => {
-      if (adminAction.type === 'NUKE' && adminAction.seller) {
+      if (activeTxAction.type === 'NUKE' && activeTxAction.seller) {
         try {
-          await adminFetch({ actionType: 'NUKE_CRYPTO_SELLER', sellerAddress: adminAction.seller });
+          await adminFetch({ actionType: 'NUKE_CRYPTO_SELLER', sellerAddress: activeTxAction.seller });
         } catch (err) {
           console.error('Nuke profile update failed:', err);
           push('warning', 'On-chain success, but failed to update seller profile');
         }
       }
-      push('success', `Order #${adminAction.id} ${adminAction.type} executed successfully.`);
-      setAdminAction(null);
-      setPendingCryptoAction(null);
+      push('success', `Order #${activeTxAction.id} ${activeTxAction.type} executed successfully.`);
+      setActiveTxAction(null);
       refetchCrypto();
       fetchFiatOrders();
     };
 
     handlePostTx();
-  }, [isSuccess, adminAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
+  }, [isSuccess, activeTxAction, adminFetch, refetchCrypto, fetchFiatOrders, push]);
 
-  const executeWrite = useCallback((action: AdminAction) => {
-    if (action.type === 'RELEASE') {
-      writeContract({
-        chainId: activeChainId,
-        address: CONTRACT_ADDRESS,
-        abi: CONTRACT_ABI,
-        functionName: 'resolveDispute', // 🚀 Explicit literal
-        args: [action.id, action.seller] as any, 
-      });
-    } else if (action.type === 'REFUND' || action.type === 'NUKE') {
-      writeContract({
-        chainId: activeChainId,
-        address: CONTRACT_ADDRESS,
-        abi: CONTRACT_ABI,
-        functionName: 'resolveDispute', // 🚀 Explicit literal
-        args: [action.id, action.buyer] as any, 
-      });
-    } else if (action.type === 'DISPUTE') {
-      writeContract({
-        chainId: activeChainId,
-        address: CONTRACT_ADDRESS,
-        abi: CONTRACT_ABI,
-        functionName: 'raiseDispute', // 🚀 Explicit literal
-        args: [action.id] as any,
-      });
-    }
-  }, [activeChainId, writeContract]);
-
-  useEffect(() => {
-    if (pendingCryptoAction && chainId === activeChainId) {
-      const action = pendingCryptoAction;
-      setPendingCryptoAction(null);
-      executeWrite(action);
-    }
-  }, [pendingCryptoAction, chainId, activeChainId, executeWrite]);
-
+  // 🚀 The Linear Execution Engine
   const executeCryptoAction = useCallback(async () => {
     if (!adminAction) return;
 
+    // 1. Handle Chain Switch (Modal Stays Open, showing Spinner)
     if (chainId !== activeChainId) {
+      setIsSwitching(true);
       try {
         await switchChainAsync({ chainId: activeChainId });
-        setPendingCryptoAction(adminAction);
-      } catch {
+      } catch (err) {
         push('error', 'Failed to switch network. Please try again.');
+        setIsSwitching(false);
+        return; // Abort, let them click execute again
       }
-      return;
+      setIsSwitching(false);
     }
-    executeWrite(adminAction);
-  }, [adminAction, chainId, activeChainId, switchChainAsync, executeWrite, push]);
 
+    // 2. State Handoff: Instantly clear modal, preserve tx intent
+    const actionToExecute = adminAction;
+    setActiveTxAction(actionToExecute);
+    setAdminAction(null);
+
+    // 3. Trigger wagmi transaction with explicit string literals
+    try {
+      if (actionToExecute.type === 'RELEASE') {
+        writeContract({
+          chainId: activeChainId,
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: 'resolveDispute',
+          args: [actionToExecute.id, actionToExecute.seller || ZERO_ADDRESS] as any,
+        });
+      } else if (actionToExecute.type === 'REFUND' || actionToExecute.type === 'NUKE') {
+        writeContract({
+          chainId: activeChainId,
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: 'resolveDispute',
+          args: [actionToExecute.id, actionToExecute.buyer || ZERO_ADDRESS] as any,
+        });
+      } else if (actionToExecute.type === 'DISPUTE') {
+        // Warning: According to Escrow.sol, this requires msg.sender == buyer || seller
+        writeContract({
+          chainId: activeChainId,
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: 'raiseDispute',
+          args: [actionToExecute.id] as any,
+        });
+      }
+    } catch (err) {
+      push('error', 'Failed to prepare transaction.');
+      setActiveTxAction(null);
+    }
+  }, [adminAction, chainId, activeChainId, switchChainAsync, writeContract, push]);
 
   // ─────────────────────────────────────────────────────────────
   // HELPER FUNCTIONS 
@@ -894,14 +894,13 @@ export default function AdminPage() {
                       <td className="p-4">
                         <div className="flex justify-end gap-2 flex-wrap">
                           {order.status === 'ACTIVE' && (
-                            <span className="text-blue-400 text-xs font-bold flex items-center gap-1 justify-end">
-                              Awaiting Parties
-                            </span>
+                            <>
+                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'REFUND' })} className="px-3 py-1.5 bg-slate-800 hover:bg-red-900/50 border border-slate-700 hover:border-red-500 text-slate-300 hover:text-red-400 text-xs font-bold rounded-lg transition-colors">Refund</button>
+                              <button onClick={() => setAdminAction({ id: BigInt(order.id), type: 'DISPUTE' })} className="px-3 py-1.5 bg-slate-800 hover:bg-amber-900/50 border border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 text-xs font-bold rounded-lg transition-colors">Flag Dispute</button>
+                            </>
                           )}
                           {order.status === 'COMPLETED' && (
-                            <span className="text-slate-600 text-xs font-bold flex items-center gap-1 justify-end">
-                              <CheckCircle className="w-3 h-3" /> Finalized
-                            </span>
+                            <span className="text-slate-600 text-xs font-bold flex items-center gap-1 justify-end"><CheckCircle className="w-3 h-3" /> Finalized</span>
                           )}
                         </div>
                       </td>
@@ -944,16 +943,19 @@ export default function AdminPage() {
         )}
       </main>
 
-     {/* Global transaction overlay */}
-      {((isWritePending || isConfirming) && adminAction) && (
+      {/* Global transaction overlay */}
+      {(isSwitching || ((isWritePending || isConfirming) && activeTxAction)) && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[250] flex items-center justify-center">
           <div className="text-center">
             <Loader2 className="w-12 h-12 animate-spin mx-auto mb-6 text-emerald-500" />
-            <p className="text-white font-bold text-lg">Processing on-chain transaction...</p>
+            <p className="text-white font-bold text-lg">
+              {isSwitching ? 'Switching Network...' : 'Processing on-chain transaction...'}
+            </p>
           </div>
         </div>
       )}
 
+      {/* Crypto Action Modal */}
       {adminAction && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className={`bg-slate-900 border ${adminAction.type === 'NUKE' ? 'border-red-500' : 'border-slate-700'} p-8 rounded-3xl max-w-sm w-full shadow-2xl`}>
@@ -969,7 +971,6 @@ export default function AdminPage() {
               <button
                 onClick={() => {
                   setAdminAction(null);
-                  setPendingCryptoAction(null);
                 }}
                 className="flex-1 bg-slate-800 hover:bg-slate-700 py-3.5 rounded-xl font-bold text-sm transition-colors"
               >
@@ -977,12 +978,12 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={executeCryptoAction}
-                disabled={isWritePending || isConfirming}
+                disabled={isSwitching || isWritePending || isConfirming}
                 className={`flex-1 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-lg ${
                   adminAction.type === 'NUKE' ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'
                 } text-white`}
               >
-                {(isWritePending || isConfirming) ? <Loader2 className="animate-spin w-4 h-4" /> : <Gavel className="w-4 h-4" />}
+                {(isSwitching || isWritePending || isConfirming) ? <Loader2 className="animate-spin w-4 h-4" /> : <Gavel className="w-4 h-4" />}
                 Execute
               </button>
             </div>
