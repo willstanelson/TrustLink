@@ -6,18 +6,6 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
-// Replace or import your actual Paystack banks array here
-const BANKS = [
-  { code: '044', name: 'Access Bank' },
-  { code: '058', name: 'Guaranty Trust Bank (GTB)' },
-  { code: '033', name: 'United Bank for Africa (UBA)' },
-  { code: '011', name: 'First Bank of Nigeria' },
-  { code: '057', name: 'Zenith Bank' },
-  { code: '032', name: 'Union Bank of Nigeria' },
-  { code: '214', name: 'First City Monument Bank (FCMB)' },
-  { code: '050', name: 'Ecobank Nigeria' },
-];
-
 export default function ProfilePage() {
   const { user, getAccessToken } = usePrivy();
   const { supabase, walletAddress, sessionReady } = useAuth();
@@ -32,6 +20,30 @@ export default function ProfilePage() {
   const [accountName, setAccountName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
+
+  //  Dynamic Banks State
+  const [banks, setBanks] = useState<{code: string, name: string}[]>([]);
+  const [isLoadingBanks, setIsLoadingBanks] = useState(true);
+
+  // Fetch Banks from Paystack
+  useEffect(() => {
+    const loadBanks = async () => {
+      try {
+        const res = await fetch('https://api.paystack.co/bank?country=nigeria');
+        const json = await res.json();
+        if (json.status) {
+          // Sort alphabetically for better UX
+          const sorted = json.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+          setBanks(sorted);
+        }
+      } catch (err) {
+        console.error("Error fetching banks:", err);
+      } finally {
+        setIsLoadingBanks(false);
+      }
+    };
+    loadBanks();
+  }, []);
 
   const fetchProfileData = useCallback(async () => {
     if (!walletAddress || !sessionReady) return;
@@ -193,18 +205,20 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Bank Name</label>
-                {/* 🚀 The Safe Select Input */}
+                {/* 🚀 Updated Select Input using dynamic banks */}
                 <select
                   required
                   value={bankCode}
                   onChange={(e) => {
                     setBankCode(e.target.value);
-                    setBankName(BANKS.find(b => b.code === e.target.value)?.name || '');
+                    setBankName(banks.find(b => b.code === e.target.value)?.name || '');
                   }}
                   className="w-full bg-slate-900/80 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-3.5 text-sm text-white transition-all outline-none appearance-none"
                 >
-                  <option value="" disabled className="text-slate-500">Select your bank...</option>
-                  {BANKS.map(b => (
+                  <option value="" disabled className="text-slate-500">
+                    {isLoadingBanks ? "Loading banks..." : "Select your bank..."}
+                  </option>
+                  {banks.map(b => (
                     <option key={b.code} value={b.code}>{b.name}</option>
                   ))}
                 </select>

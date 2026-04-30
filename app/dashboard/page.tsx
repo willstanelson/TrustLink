@@ -20,38 +20,36 @@ const ERC20_ABI = [
   { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable', type: 'function' }
 ] as const;
 
-const BANKS = [
-    { code: '120001', name: '9mobile 9Payment Service Bank' },
-    { code: '801',    name: 'Abbey Mortgage Bank' },
-    { code: '044',    name: 'Access Bank' },
-    { code: '063',    name: 'Access Bank (Diamond)' },
-    { code: '035A',   name: 'ALAT by WEMA' },
-    { code: '050',    name: 'Ecobank Nigeria' },
-    { code: '070',    name: 'Fidelity Bank' },
-    { code: '011',    name: 'First Bank of Nigeria' },
-    { code: '214',    name: 'First City Monument Bank' },
-    { code: '058',    name: 'Guaranty Trust Bank' },
-    { code: '082',    name: 'Keystone Bank' },
-    { code: '50211',  name: 'Kuda Bank' },
-    { code: '120003', name: 'MTN Momo PSB' },
-    { code: '999992', name: 'Opay (Paycom)' },
-    { code: '999991', name: 'PalmPay' },
-    { code: '076',    name: 'Polaris Bank' },
-    { code: '221',    name: 'Stanbic IBTC Bank' },
-    { code: '232',    name: 'Sterling Bank' },
-    { code: '032',    name: 'Union Bank of Nigeria' },
-    { code: '033',    name: 'United Bank For Africa' },
-    { code: '035',    name: 'Wema Bank' },
-    { code: '057',    name: 'Zenith Bank' },
-].sort((a, b) => a.name.localeCompare(b.name));
 
 function MainDashboard() {
   const { supabase, sessionReady, sessionLoading, sessionError, refreshSession } = useAuth();
   const { login, authenticated, user, logout, linkEmail, getAccessToken } = usePrivy();
+  // 🚀 NEW: Dynamic Banks State for Dashboard
+  const [banks, setBanks] = useState<{code: string, name: string}[]>([]);
+  const [isLoadingBanks, setIsLoadingBanks] = useState(true);
+
+  // 🚀 NEW: Fetch Banks from Paystack
+  useEffect(() => {
+    const loadBanks = async () => {
+      try {
+        const res = await fetch('https://api.paystack.co/bank?country=nigeria');
+        const json = await res.json();
+        if (json.status) {
+          const sorted = json.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
+          setBanks(sorted);
+        }
+      } catch (err) {
+        console.error("Error fetching banks:", err);
+      } finally {
+        setIsLoadingBanks(false);
+      }
+    };
+    loadBanks();
+  }, []);
   const { switchChain, error: switchError } = useSwitchChain();
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   const { wallets } = useWallets();
   const { setActiveWallet } = useSetActiveWallet();
 
@@ -561,7 +559,7 @@ function MainDashboard() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: fiatAmount, email: buyerEmail, seller_email: sellerEmail,
-          seller_bank: BANKS.find(b => b.code === bankCode)?.name || bankCode,
+          seller_bank: banks.find(b => b.code === bankCode)?.name || bankCode,
           seller_number: accountNumber, seller_name: accountName,
           description: fiatDescription || "Escrow Payment", buyer_wallet: userAddress,
         }),
@@ -787,12 +785,20 @@ function MainDashboard() {
                         <input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" />
                       </div>
                       <div>
+                        <div>
                         <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
                         <div className="flex flex-col gap-2 mt-1">
-                          <select value={bankCode} onChange={(e) => setBankCode(e.target.value)} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all text-sm appearance-none">
-                            <option value="">Select Bank</option>
-                            {BANKS.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
+                          {/* 🚀 Updated Select Input using dynamic banks */}
+                          <select 
+                            value={bankCode} 
+                            onChange={(e) => setBankCode(e.target.value)} 
+                            className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all text-sm appearance-none"
+                          >
+                            <option value="">{isLoadingBanks ? "Loading banks..." : "Select Bank"}</option>
+                            {banks.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
                           </select>
+                          
+                          <div className="relative"></div>
                           <div className="relative">
                             <input value={accountNumber} onChange={(e) => { if (e.target.value.length <= 10) setAccountNumber(e.target.value); }} placeholder="Account Number (10 digits)" type="number" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" />
                             {isResolving && <div className="absolute right-4 top-3.5"><Loader2 className="animate-spin w-4 h-4 text-blue-500" /></div>}
