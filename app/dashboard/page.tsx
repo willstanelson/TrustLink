@@ -755,7 +755,6 @@ function MainDashboard() {
                   </button>
                 </>
               )}
-
               {mode === 'fiat' && (
                 <>
                   {!hasEmailLinked ? (
@@ -776,19 +775,21 @@ function MainDashboard() {
                           <input type="number" value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value)} placeholder="Amount (e.g. 5000)" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" />
                         </div>
                       </div>
+
                       <div className="opacity-70 cursor-not-allowed">
                         <label className="text-xs text-slate-400 ml-1 font-bold flex items-center gap-1.5">YOUR EMAIL <Lock className="w-3 h-3 text-slate-500" /></label>
                         <input readOnly value={buyerEmail} className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none text-slate-400 cursor-not-allowed" />
                       </div>
+
                       <div>
                         <label className="text-xs text-emerald-400 ml-1 font-bold">SELLER'S TRUSTLINK EMAIL</label>
                         <input value={sellerEmail} onChange={(e) => setSellerEmail(e.target.value)} placeholder="seller@email.com" className="w-full bg-slate-900/50 border border-emerald-500/30 rounded-lg px-4 py-3 mt-1 outline-none focus:border-emerald-500 transition-all" />
                       </div>
+
+                      {/* 🚀 FIXED DIV STRUCTURE HERE */}
                       <div>
-                        <div>
                         <label className="text-xs text-slate-400 ml-1 font-bold">SELLER BANK DETAILS</label>
                         <div className="flex flex-col gap-2 mt-1">
-                          {/* 🚀 Updated Select Input using dynamic banks */}
                           <select 
                             value={bankCode} 
                             onChange={(e) => setBankCode(e.target.value)} 
@@ -798,11 +799,11 @@ function MainDashboard() {
                             {banks.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
                           </select>
                           
-                          <div className="relative"></div>
                           <div className="relative">
                             <input value={accountNumber} onChange={(e) => { if (e.target.value.length <= 10) setAccountNumber(e.target.value); }} placeholder="Account Number (10 digits)" type="number" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition-all" />
                             {isResolving && <div className="absolute right-4 top-3.5"><Loader2 className="animate-spin w-4 h-4 text-blue-500" /></div>}
                           </div>
+
                           <div className={`w-full bg-slate-800/50 border ${accountName ? 'border-emerald-500/30 bg-emerald-500/10' : resolveError ? 'border-red-500/30 bg-red-500/10' : 'border-slate-800'} rounded-lg px-4 py-3 transition-all flex items-center gap-2 min-h-[46px]`}>
                             {accountName
                               ? <><div className="bg-emerald-500 rounded-full p-0.5"><CheckCircle2 className="w-3 h-3 text-white" /></div><span className="text-xs font-bold text-emerald-400 tracking-wide">{accountName}</span></>
@@ -812,10 +813,12 @@ function MainDashboard() {
                           </div>
                         </div>
                       </div>
+
                       <div>
                         <label className="text-xs text-slate-400 ml-1 font-bold">DESCRIPTION</label>
                         <textarea value={fiatDescription} onChange={(e) => setFiatDescription(e.target.value)} placeholder="What are you paying for?" className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 mt-1 outline-none focus:border-blue-500 transition-all h-24 resize-none" />
                       </div>
+
                       <button onClick={handleFiatTransaction} disabled={!fiatAmount || !accountName || !buyerEmail || !sellerEmail} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2">
                         Secure Bank Transfer <ArrowRight className="w-4 h-4" />
                       </button>
