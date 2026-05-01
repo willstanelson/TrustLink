@@ -26,24 +26,25 @@ export default function ProfilePage() {
   const [isLoadingBanks, setIsLoadingBanks] = useState(true);
 
   // Fetch Banks from Paystack
-  useEffect(() => {
-    const loadBanks = async () => {
-      try {
-        const res = await fetch('https://api.paystack.co/bank?country=nigeria');
-        const json = await res.json();
-        if (json.status) {
-          // Sort alphabetically for better UX
-          const sorted = json.data.sort((a: any, b: any) => a.name.localeCompare(b.name));
-          setBanks(sorted);
-        }
-      } catch (err) {
-        console.error("Error fetching banks:", err);
-      } finally {
-        setIsLoadingBanks(false);
+useEffect(() => {
+  const fetchBanks = async () => {
+    try {
+      // 🚀 Now we hit our OWN Next.js server, avoiding all CORS errors
+      const res = await fetch('/api/banks'); 
+      const json = await res.json();
+      
+      // Paystack wraps their array inside a "data" object. 
+      // Ensure you are setting the array, not the wrapper!
+      if (json && json.data) {
+        setBanks(json.data); 
       }
-    };
-    loadBanks();
-  }, []);
+    } catch (error) {
+      console.error("Error loading banks from internal API:", error);
+    }
+  };
+
+  fetchBanks();
+}, []);
 
   const fetchProfileData = useCallback(async () => {
     if (!walletAddress || !sessionReady) return;
