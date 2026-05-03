@@ -2,29 +2,32 @@
 
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
+import { usePrivy } from '@privy-io/react-auth'; // 🚀 Added Privy
 
-export default function ClaimLevelButton({ 
-  currentLevel, 
-  isEligible, 
-  onSuccess 
-}: { 
-  currentLevel: number; 
-  isEligible: boolean; 
-  onSuccess?: () => void;
-}) {
+export default function ClaimLevelButton({ currentLevel, isEligible, onSuccess }: any) {
   const [isClaiming, setIsClaiming] = useState(false);
+  const { getAccessToken } = usePrivy(); // 🚀 Get the auth token
 
   const handleClaim = async () => {
     setIsClaiming(true);
 
     try {
-      const res = await fetch('/api/trust/claim-level', { method: 'POST' });
-      const data = await res.json();
+      const token = await getAccessToken();
+      if (!token) throw new Error("Authentication required");
 
+      const res = await fetch('/api/trust/claim-level', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // 🚀 Send token to backend
+        }
+      });
+      
+      const data = await res.json();
       if (!res.ok) throw new Error(data.details || data.error);
 
       toast.success(`🎉 ${data.message}`, { duration: 4000 });
-      onSuccess?.(); // Refresh data
+      onSuccess?.(); 
 
     } catch (error: any) {
       toast.error(error.message || "Failed to claim level");
