@@ -6,6 +6,17 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
+import ReputationCard from '@/components/ReputationCard';
+
+export default function ProfilePage() {
+  // ... fetch profile data
+  return (
+    <div>
+      <ReputationCard profile={profileData} />
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { user, getAccessToken } = usePrivy();
   const { supabase, walletAddress, sessionReady } = useAuth();
