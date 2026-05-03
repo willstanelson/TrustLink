@@ -5,8 +5,6 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-
-// 🚀 Your new Reputation Engine component
 import ReputationCard from '@/components/ReputationCard';
 
 export default function ProfilePage() {
@@ -15,9 +13,9 @@ export default function ProfilePage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState({ completed: 0, disputed: 0 });
-  const [profileData, setProfileData] = useState<any>(null); // 🚀 Added state to hold the full profile for the ReputationCard
+  const [profileData, setProfileData] = useState<any>(null); 
+  const [recoveryAttempted, setRecoveryAttempted] = useState(false);
   
-  // Bank Details State
   const [bankName, setBankName] = useState('');
   const [bankCode, setBankCode] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -25,35 +23,32 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Dynamic Banks State
   const [banks, setBanks] = useState<{code: string, name: string}[]>([]);
   const [isLoadingBanks, setIsLoadingBanks] = useState(true);
 
-  // Fetch Banks from Paystack
+  // Fetch Banks from API
   useEffect(() => {
     const fetchBanks = async () => {
       try {
         const res = await fetch('/api/banks'); 
         const json = await res.json();
-        
-        if (json && json.data) {
-          setBanks(json.data); 
-        }
+        if (json && json.data) setBanks(json.data); 
       } catch (error) {
-        console.error("Error loading banks from internal API:", error);
+        console.error("Error loading banks:", error);
       } finally {
         setIsLoadingBanks(false);
       }
     };
-
     fetchBanks();
   }, []);
 
+  // Securely Fetch Profile Data + Escrow Stats
   const fetchProfileData = useCallback(async () => {
     if (!walletAddress || !sessionReady) return;
     
     setIsLoading(true);
     try {
+      // 1. Fetch Escrow Stats (Public/Accessible via anon key if RLS allows)
       const { data: orders } = await supabase
         .from('escrow_orders')
         .select('status')
@@ -65,28 +60,68 @@ export default function ProfilePage() {
         setStats({ completed, disputed });
       }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .ilike('wallet_address', walletAddress)
-        .single();
+      // 2. Secure Profile Fetch via Next.js Backend
+      const token = await getAccessToken();
+      if (!token) return;
 
-      if (profile) {
-        setProfileData(profile); // 🚀 Save the full profile data to pass to the ReputationCard
-        setBankName(profile.bank_name || '');
-        setBankCode(profile.bank_code || ''); 
-        setAccountNumber(profile.account_number || '');
-        setAccountName(profile.account_name || '');
+      const res = await fetch('/api/profile', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+
+      if (res.ok && data.profile) {
+        setProfileData(data.profile);
+        setBankName(data.profile.bank_name || '');
+        setBankCode(data.profile.bank_code || ''); 
+        setAccountNumber(data.profile.account_number || '');
+        setAccountName(data.profile.account_name || '');
+        setRecoveryAttempted(false); // Reset breaker on success
+      } 
+      else if (res.status === 404 && data.code === 'PGRST116') {
+        // 🛡️ SELF-HEALING PROTOCOL
+        if (recoveryAttempted) {
+          console.error("Recovery failed. Please contact support.");
+          setProfileData(null); 
+          return;
+        }
+
+        console.log("Missing profile detected. Executing background sync...");
+        setRecoveryAttempted(true);
+        
+        // Ping the sync API to heal the database
+        await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        // 🚀 Inline re-fetch to avoid stale React closures
+        const retryRes = await fetch('/api/profile', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const retryData = await retryRes.json();
+
+        if (retryRes.ok && retryData.profile) {
+          setProfileData(retryData.profile);
+          setBankName(retryData.profile.bank_name || '');
+          setBankCode(retryData.profile.bank_code || ''); 
+          setAccountNumber(retryData.profile.account_number || '');
+          setAccountName(retryData.profile.account_name || '');
+        } else {
+          setProfileData(null); // Force error UI if the retry still failed
+        }
       }
+    } catch (err) {
+      console.error("Failed to load profile data:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [walletAddress, sessionReady, supabase]);
+  }, [walletAddress, sessionReady, supabase, getAccessToken, recoveryAttempted]);
 
   useEffect(() => {
     fetchProfileData();
   }, [fetchProfileData]);
 
+  // Securely Save Bank Details
   const handleSaveBankDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -119,7 +154,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (isLoading) return (
+  if (isLoading && !recoveryAttempted) return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center">
       <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
     </div>
@@ -170,17 +205,28 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* 🚀 NEW REPUTATION CARD */}
+          {/* REPUTATION CARD */}
           {profileData ? (
             <ReputationCard profile={profileData} />
           ) : (
-            <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-2xl flex items-center justify-center">
-              <p className="text-slate-500 text-sm">Loading reputation data...</p>
+            <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col items-center justify-center text-center gap-3">
+              {recoveryAttempted ? (
+                <>
+                  <div className="p-3 bg-amber-500/10 text-amber-400 rounded-full">⚠️</div>
+                  <p className="text-amber-400 text-sm font-bold">Profile Data Missing</p>
+                  <p className="text-slate-500 text-xs">We attempted recovery but could not sync your data. Please contact support.</p>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  <p className="text-slate-500 text-sm">Loading reputation data...</p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* FIAT PAYOUT DETAILS (NGN) */}
+        {/* FIAT PAYOUT DETAILS */}
         <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden mt-6">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-500 to-blue-500 opacity-50"></div>
           

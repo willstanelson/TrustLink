@@ -12,38 +12,75 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// 🚀 THE FIX: Extracted DRY Auth Helper
+async function getVerifiedWallet(req: Request): Promise<string> {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new Error('Unauthorized');
+  }
+
+  const privyToken = authHeader.split(' ')[1];
+  const claims = await privy.verifyAuthToken(privyToken);
+  const privyUser = await privy.getUser(claims.userId);
+  const wallet = privyUser.linkedAccounts.find(
+    (a): a is WalletWithMetadata => a.type === 'wallet'
+  );
+  
+  const callerWallet = wallet?.address?.toLowerCase();
+  if (!callerWallet) throw new Error('No wallet');
+  
+  return callerWallet;
+}
+
+// ==========================================
+// SECURE PROFILE FETCH
+// ==========================================
+export async function GET(req: Request) {
+  try {
+    const callerWallet = await getVerifiedWallet(req);
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .ilike('wallet_address', callerWallet)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return NextResponse.json({ error: "Profile not found", code: 'PGRST116' }, { status: 404 });
+      }
+      throw error;
+    }
+
+    return NextResponse.json({ profile });
+  } catch (error: any) {
+    if (error.message === 'Unauthorized' || error.message === 'No wallet') {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("Profile Fetch Error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// ==========================================
+// SECURE BANK UPDATE WITH VALIDATION
+// ==========================================
 export async function POST(req: Request) {
   try {
-    // 1. Strict Authentication
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const privyToken = authHeader.split(' ')[1];
-    let callerWallet: string;
-
-    try {
-      const claims = await privy.verifyAuthToken(privyToken);
-      const privyUser = await privy.getUser(claims.userId);
-      const wallet = privyUser.linkedAccounts.find(
-        (a): a is WalletWithMetadata => a.type === 'wallet'
-      );
-      callerWallet = wallet?.address?.toLowerCase() ?? '';
-      if (!callerWallet) throw new Error('No wallet');
-    } catch {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
+    const callerWallet = await getVerifiedWallet(req);
     const body = await req.json();
     const { bankName, bankCode, accountNumber, accountName } = body;
 
-    // 1. Validate FIRST (Don't waste database reads if the data is empty)
+    // 🚀 THE FIX: Strict Input Validation
     if (!bankName || !bankCode || !accountNumber || !accountName) {
       return NextResponse.json({ error: 'Missing bank details' }, { status: 400 });
     }
+    
+    // Validate Nigerian NUBAN (Exactly 10 digits)
+    if (!/^\d{10}$/.test(accountNumber)) {
+      return NextResponse.json({ error: 'Account number must be exactly 10 digits' }, { status: 400 });
+    }
 
-    // 2. Perform exactly ONE upsert with all the fields
     const { error } = await supabaseAdmin
       .from('profiles')
       .upsert({ 
@@ -59,6 +96,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, message: 'Bank details updated successfully' });
   } catch (error: any) {
+    if (error.message === 'Unauthorized' || error.message === 'No wallet') {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
     console.error('Profile Update Error:', error);
     return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
   }

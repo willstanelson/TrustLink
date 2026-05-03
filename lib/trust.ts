@@ -43,8 +43,8 @@ export function calculateTrustStats(profile: any) {
 
   return {
     score: finalScore,
-    level: currentLevel || 1,
-    title: getLevelTitle(currentLevel || 1),
+    level: currentLevel,
+    title: getLevelTitle(currentLevel),
     isEligibleForNext,
     rawScore: mathScore,        // Used for XP Cap warning
   };

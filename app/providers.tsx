@@ -1,12 +1,12 @@
 'use client';
 
-import { PrivyProvider } from '@privy-io/react-auth';
+import { PrivyProvider, useLogin, usePrivy } from '@privy-io/react-auth';
 import { WagmiProvider, createConfig } from '@privy-io/wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http } from 'wagmi';
 import { defineChain } from 'viem';
 import { baseSepolia, bscTestnet, optimismSepolia, polygonAmoy } from 'viem/chains';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // 🚀 THE FIX: Import AuthProvider here, inside the Client Component boundary
 import { AuthProvider } from '@/context/AuthContext';
@@ -46,6 +46,34 @@ export const wagmiConfig = createConfig({
 });
 
 // ==========================================
+// 🚀 GLOBAL AUTH SYNC (INVISIBLE COMPONENT)
+// ==========================================
+function GlobalAuthSync() {
+  const { getAccessToken } = usePrivy();
+
+  // The hook fires automatically upon a successful wallet connection/login
+  useLogin({
+    onComplete: async () => {
+      try {
+        const token = await getAccessToken();
+        if (token) {
+          // Fire and forget the sync to ensure the DB row exists
+          await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          console.log("Global sync complete. User row exists.");
+        }
+      } catch (err) {
+        console.error("Failed background sync on login:", err);
+      }
+    },
+  });
+
+  return null; 
+}
+
+// ==========================================
 // 3. PROVIDERS
 // ==========================================
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -72,8 +100,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
-          {/* 🚀 THE FIX: AuthProvider safely executes entirely on the client side */}
           <AuthProvider>
+            {/* 🚀 DROP THE SYNC COMPONENT RIGHT HERE */}
+            <GlobalAuthSync /> 
             {children}
           </AuthProvider>
         </WagmiProvider>
