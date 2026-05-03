@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toaster } from 'react-hot-toast';
 import "./globals.css";
-
-// 🚀 THE FIX: Import the consolidated client Providers file
 import Providers from "./providers";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -20,9 +19,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        {/* Your Auth and Context Providers wrap the app */}
         <Providers>
           {children}
         </Providers>
+        
+        {/* The Toaster lives at the root so it can fire on any page */}
+        <Toaster position="bottom-right" /> 
       </body>
     </html>
   );
