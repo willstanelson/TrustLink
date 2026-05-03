@@ -6,16 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
+// 🚀 Your new Reputation Engine component
 import ReputationCard from '@/components/ReputationCard';
-
-export default function ProfilePage() {
-  // ... fetch profile data
-  return (
-    <div>
-      <ReputationCard profile={profileData} />
-    </div>
-  );
-}
 
 export default function ProfilePage() {
   const { user, getAccessToken } = usePrivy();
@@ -23,6 +15,7 @@ export default function ProfilePage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState({ completed: 0, disputed: 0 });
+  const [profileData, setProfileData] = useState<any>(null); // 🚀 Added state to hold the full profile for the ReputationCard
   
   // Bank Details State
   const [bankName, setBankName] = useState('');
@@ -32,30 +25,29 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  //  Dynamic Banks State
+  // Dynamic Banks State
   const [banks, setBanks] = useState<{code: string, name: string}[]>([]);
   const [isLoadingBanks, setIsLoadingBanks] = useState(true);
 
   // Fetch Banks from Paystack
-useEffect(() => {
-  const fetchBanks = async () => {
-    try {
-      // 🚀 Now we hit our OWN Next.js server, avoiding all CORS errors
-      const res = await fetch('/api/banks'); 
-      const json = await res.json();
-      
-      // Paystack wraps their array inside a "data" object. 
-      // Ensure you are setting the array, not the wrapper!
-      if (json && json.data) {
-        setBanks(json.data); 
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const res = await fetch('/api/banks'); 
+        const json = await res.json();
+        
+        if (json && json.data) {
+          setBanks(json.data); 
+        }
+      } catch (error) {
+        console.error("Error loading banks from internal API:", error);
+      } finally {
+        setIsLoadingBanks(false);
       }
-    } catch (error) {
-      console.error("Error loading banks from internal API:", error);
-    }
-  };
+    };
 
-  fetchBanks();
-}, []);
+    fetchBanks();
+  }, []);
 
   const fetchProfileData = useCallback(async () => {
     if (!walletAddress || !sessionReady) return;
@@ -80,8 +72,9 @@ useEffect(() => {
         .single();
 
       if (profile) {
+        setProfileData(profile); // 🚀 Save the full profile data to pass to the ReputationCard
         setBankName(profile.bank_name || '');
-        setBankCode(profile.bank_code || ''); // 🚀 Now pulling the vital bank_code
+        setBankCode(profile.bank_code || ''); 
         setAccountNumber(profile.account_number || '');
         setAccountName(profile.account_name || '');
       }
@@ -109,7 +102,7 @@ useEffect(() => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ bankName, bankCode, accountNumber, accountName }) // 🚀 Sending bankCode to backend
+        body: JSON.stringify({ bankName, bankCode, accountNumber, accountName })
       });
 
       const data = await res.json();
@@ -126,7 +119,6 @@ useEffect(() => {
     }
   };
 
-  // 🚀 Loading State UI
   if (isLoading) return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] flex items-center justify-center">
       <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
@@ -140,9 +132,7 @@ useEffect(() => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] pt-12 pb-12 px-4 sm:px-6 text-white font-sans">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* ... rest of your code ... */}
         
-        {/* 🚀 Back Navigation */}
         <Link 
           href="/dashboard"
           className="inline-flex items-center gap-2 text-slate-400 hover:text-emerald-400 text-sm font-bold transition-colors mb-4"
@@ -151,7 +141,6 @@ useEffect(() => {
           Back to Dashboard
         </Link>
 
-        {/* Header Section */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-black text-white tracking-tight">Profile Settings</h1>
@@ -181,24 +170,14 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* REPUTATION STATS */}
-          <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-50"></div>
-            <h2 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
-              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              Reputation
-            </h2>
-            <div className="grid grid-cols-2 gap-4 h-[calc(100%-44px)]">
-              <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800/50 flex flex-col justify-center items-center text-center">
-                <p className="text-3xl font-black text-white">{stats.completed}</p>
-                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mt-1">Completed</p>
-              </div>
-              <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800/50 flex flex-col justify-center items-center text-center">
-                <p className="text-3xl font-black text-white">{stats.disputed}</p>
-                <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mt-1">Disputes</p>
-              </div>
+          {/* 🚀 NEW REPUTATION CARD */}
+          {profileData ? (
+            <ReputationCard profile={profileData} />
+          ) : (
+            <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-2xl flex items-center justify-center">
+              <p className="text-slate-500 text-sm">Loading reputation data...</p>
             </div>
-          </div>
+          )}
         </div>
 
         {/* FIAT PAYOUT DETAILS (NGN) */}
@@ -217,7 +196,6 @@ useEffect(() => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Bank Name</label>
-                {/* 🚀 Updated Select Input using dynamic banks */}
                 <select
                   required
                   value={bankCode}
