@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/auth-helpers';
 
 export async function getNormalizedUSD(order: { 
   currency: string; 
