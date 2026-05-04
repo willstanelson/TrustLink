@@ -17,6 +17,7 @@ const EscrowOrderSchema = z.object({
   token_symbol: z.string().min(1, "Token symbol is required"),
   network: z.string().min(1, "Network is required"),
   status: z.literal('secured').default('secured'),
+  trade_type: z.string().optional(), // 🚀 ADDED: Allows backend to identify Gift Card trades
 });
 
 export async function POST(req: Request) {
@@ -24,6 +25,24 @@ export async function POST(req: Request) {
     const rawPayload = await req.json();
     const validatedData = EscrowOrderSchema.parse(rawPayload);
 
+    // 🚀 STEP 4 INJECTED: THE LEVEL 3 GATEKEEPER
+    if (validatedData.trade_type === 'GIFT_CARD') {
+      // Look up the buyer's trust level (assuming buyer initiates and locks funds)
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('current_trust_level')
+        .ilike('wallet_address', validatedData.buyer_wallet_address)
+        .single();
+
+      if (!profile || profile.current_trust_level < 3) {
+        return NextResponse.json({ 
+          status: 'error', 
+          message: 'Gift Card trading is locked. You must reach Trust Level 3 to access this feature.' 
+        }, { status: 403 });
+      }
+    }
+
+    // 🚀 Proceed with Order Creation if they pass the check (or if it's a standard trade)
     const { data, error } = await supabaseAdmin
       .from('escrow_orders')
       .insert([validatedData])
@@ -32,7 +51,6 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error("Supabase Admin Insert Error:", error);
-      // 🚀 CHANGED: Now it sends the exact database error back to the frontend
       return NextResponse.json({ status: 'error', message: `DB Error: ${error.message}` }, { status: 500 });
     }
 
@@ -45,7 +63,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'error', message: 'Invalid input data', errors: error.errors }, { status: 400 });
     }
     
-    // 🚀 CHANGED: Now it sends exact server crash reasons (like missing API keys) back to the frontend
     return NextResponse.json({ status: 'error', message: `Server Error: ${error.message || 'Internal server error'}` }, { status: 500 });
   }
 }
