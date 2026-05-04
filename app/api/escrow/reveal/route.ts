@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/auth-helpers';
 import { getVerifiedWallet } from '@/lib/auth-helpers'; // Assuming you kept this helper
 import { encryptGiftCard } from '@/lib/encryption';
 

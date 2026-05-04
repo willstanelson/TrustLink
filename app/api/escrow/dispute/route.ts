@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/auth-helpers';
 import { getVerifiedWallet } from '@/lib/auth-helpers';
 import { Resend } from 'resend';
 
