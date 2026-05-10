@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
@@ -12,18 +13,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function TradeRoom({ params }: { params: { orderId: string } }) {
-  const { orderId } = params;
+export default function TradeRoom() {
+  const params = useParams();
+  const orderId = params.orderId as string;
+
   const { ready, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const queryClient = useQueryClient();
-  
+
   const userWallet = wallets[0]?.address?.toLowerCase();
 
-  const [giftCardInput, setGiftCardInput] = useState('');
-  const [decryptedCode, setDecryptedCode] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [timeLeft, setTimeLeft] = useState('');
+  // ✅ FIXED: All four missing state declarations added
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  const [decryptedCode, setDecryptedCode] = useState<string>('');
+  const [giftCardInput, setGiftCardInput] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // 1. Secure Initial Fetch
   const { data: order, isLoading } = useQuery({
@@ -49,8 +53,8 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
 
   // 2. Realtime Subscription
   useEffect(() => {
-    if (!orderId || (!isBuyer && !isSeller)) return; 
-    
+    if (!orderId || (!isBuyer && !isSeller)) return;
+
     const channel = supabase
       .channel(`trade_${orderId}`)
       .on(
@@ -109,7 +113,7 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
     }
     fetchDecryptedCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.status, isBuyer, orderId, decryptedCode]); 
+  }, [order?.status, isBuyer, orderId, decryptedCode]);
 
   // 5. Handlers
   const handleRevealCode = async () => {
@@ -151,14 +155,18 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
     }
   };
 
-  if (!ready || isLoading) return <div className="p-10 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>;
+  if (!ready || isLoading) return (
+    <div className="p-10 flex justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+    </div>
+  );
   if (!order) return <div className="p-10 text-center text-gray-500">Order not found.</div>;
 
   const isExpired = timeLeft.includes('Expired');
 
   return (
     <div className="max-w-6xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-      
+
       {/* LEFT COLUMN: THE STATE MACHINE */}
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
@@ -171,12 +179,18 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
               {isSeller ? (
                 <div className="space-y-4">
                   <p className="text-indigo-900 font-medium">Buyer secured the crypto. Provide the Gift Card code.</p>
-                  <input 
-                    type="text" placeholder="e.g. AQB1-8273-XYZ9..."
+                  <input
+                    type="text"
+                    placeholder="e.g. AQB1-8273-XYZ9..."
                     className="w-full px-4 py-3 rounded-lg border border-indigo-200 focus:ring-2 focus:ring-indigo-600 outline-none bg-white"
-                    value={giftCardInput} onChange={(e) => setGiftCardInput(e.target.value)}
+                    value={giftCardInput}
+                    onChange={(e) => setGiftCardInput(e.target.value)}
                   />
-                  <button onClick={handleRevealCode} disabled={isSubmitting} className="w-full bg-indigo-600 text-white font-semibold py-3 rounded-lg hover:bg-indigo-700 transition disabled:opacity-50">
+                  <button
+                    onClick={handleRevealCode}
+                    disabled={isSubmitting}
+                    className="w-full bg-indigo-600 text-white font-semibold py-3 rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                  >
                     {isSubmitting ? 'Securing...' : 'Reveal Code'}
                   </button>
                 </div>
@@ -204,15 +218,35 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
                       <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Decrypted Code</p>
                       <p className="font-mono text-lg text-gray-900 bg-white px-3 py-1 rounded border border-gray-200 shadow-inner">
                         {decryptedCode || 'Decrypting...'}
-                      </p> 
+                      </p>
                     </div>
-                    <button onClick={() => { if (decryptedCode) { navigator.clipboard.writeText(decryptedCode); toast.success('Code copied!'); } }} className="p-2 text-gray-400 hover:text-indigo-600 transition">
+                    <button
+                      onClick={() => {
+                        if (decryptedCode) {
+                          navigator.clipboard.writeText(decryptedCode);
+                          toast.success('Code copied!');
+                        }
+                      }}
+                      className="p-2 text-gray-400 hover:text-indigo-600 transition"
+                    >
                       <Copy className="w-5 h-5" />
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <button onClick={() => handleAction('buyer-release')} disabled={isSubmitting} className="bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50">Code Works (Release)</button>
-                    <button onClick={() => handleAction('dispute')} disabled={isSubmitting} className="bg-red-50 text-red-600 border border-red-200 py-3 rounded-lg font-semibold hover:bg-red-100 transition disabled:opacity-50">Dispute Trade</button>
+                    <button
+                      onClick={() => handleAction('buyer-release')}
+                      disabled={isSubmitting}
+                      className="bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50"
+                    >
+                      Code Works (Release)
+                    </button>
+                    <button
+                      onClick={() => handleAction('dispute')}
+                      disabled={isSubmitting}
+                      className="bg-red-50 text-red-600 border border-red-200 py-3 rounded-lg font-semibold hover:bg-red-100 transition disabled:opacity-50"
+                    >
+                      Dispute Trade
+                    </button>
                   </div>
                 </div>
               )}
@@ -220,7 +254,11 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
               {isSeller && (
                 <div className="bg-gray-50 rounded-lg p-6 text-center border border-gray-200 space-y-4">
                   <p className="text-gray-600">Waiting for buyer to redeem and release funds.</p>
-                  <button onClick={() => handleAction('force-release')} disabled={!isExpired || isSubmitting} className={`w-full py-3 rounded-lg font-semibold transition ${isExpired ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+                  <button
+                    onClick={() => handleAction('force-release')}
+                    disabled={!isExpired || isSubmitting}
+                    className={`w-full py-3 rounded-lg font-semibold transition ${isExpired ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                  >
                     Force Release Escrow
                   </button>
                   {!isExpired && <p className="text-xs text-gray-400">Available when timer expires</p>}
@@ -250,15 +288,28 @@ export default function TradeRoom({ params }: { params: { orderId: string } }) {
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4">Trade Details</h3>
           <div className="space-y-3 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Order ID</span><span className="font-mono text-gray-900">{order.id.split('-')[0]}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold text-gray-900">{order.crypto_amount} {order.token_symbol}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Fiat Value</span><span className="text-gray-900">₦{Number(order.fiat_amount).toLocaleString()}</span></div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Order ID</span>
+              <span className="font-mono text-gray-900">{order.id.split('-')[0]}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Amount</span>
+              <span className="font-bold text-gray-900">{order.crypto_amount} {order.token_symbol}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Fiat Value</span>
+              <span className="text-gray-900">₦{Number(order.fiat_amount).toLocaleString()}</span>
+            </div>
           </div>
         </div>
 
         <div className="bg-gray-50 border border-gray-200 rounded-2xl flex flex-col h-[400px] shadow-sm overflow-hidden">
-          <div className="bg-white border-b border-gray-200 p-4"><h3 className="font-bold text-gray-900">Encrypted Chat</h3></div>
-          <div className="flex-1 p-4 flex items-center justify-center text-center"><p className="text-gray-400 text-sm max-w-[200px]">XMTP Chat Component injected here.</p></div>
+          <div className="bg-white border-b border-gray-200 p-4">
+            <h3 className="font-bold text-gray-900">Encrypted Chat</h3>
+          </div>
+          <div className="flex-1 p-4 flex items-center justify-center text-center">
+            <p className="text-gray-400 text-sm max-w-[200px]">XMTP Chat Component injected here.</p>
+          </div>
         </div>
       </div>
     </div>
