@@ -758,7 +758,7 @@ function MainDashboard() {
           : dbOrder.id,
         isAccepted:  [
           'accepted', 'partially_released', 'shipped',
-          'success', 'completed', 'processing_payout', 'secured',
+          'success', 'completed', 'processing_payout'
         ].includes(currentStatus),
         isShipped:   ['shipped', 'success', 'completed', 'processing_payout'].includes(
           currentStatus,
