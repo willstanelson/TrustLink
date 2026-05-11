@@ -12,7 +12,6 @@ import { usePrivy } from '@privy-io/react-auth';
 import dynamic from 'next/dynamic';
 import TrustBadge from './TrustBadge';
 import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '../app/constants';
-// 🚀 THE FIX: Import the secure auth context instead of the raw client
 import { useAuth } from '../context/AuthContext';
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? '';
@@ -178,8 +177,6 @@ export default function OrderCard({
 }) {
   const { toasts, dismiss, push } = useToast();
   const { getAccessToken } = usePrivy();
-  
-  // 🚀 THE FIX: Pull the authenticated supabase client from context
   const { supabase } = useAuth();
 
   const [showChat, setShowChat] = useState(false);
@@ -201,8 +198,12 @@ export default function OrderCard({
   const chainId = useChainId();
   const activeChainId = CHAIN_CONFIG[chainId] ? chainId : (Object.keys(CHAIN_CONFIG).map(Number)[0] ?? chainId);
 
+  // 🚀 THE FIX: Identify trade type and correctly strip ALL prefixes
   const isFiat     = order.type === 'FIAT';
-  const rawOrderId = String(order.id).replace('NGN-', '');
+  const isGiftCard = order.type === 'GIFTCARD';
+  const isOffChain = isFiat || isGiftCard; // Group both Web2 routes together
+  
+  const rawOrderId = String(order.id).replace('NGN-', '').replace('GC-', '');
   const dbOrderId  = parseOrderId(rawOrderId);
   const peerAddress = isSellerView ? order.buyer : order.seller;
 
@@ -214,8 +215,10 @@ export default function OrderCard({
     const numId = Number(rawOrderId);
     if (isNaN(numId)) return order.id;
     const scrambledHex = (numId * 83911).toString(16).toUpperCase();
-    return isFiat ? `NGN-${scrambledHex}` : `ORD-${scrambledHex}`;
-  }, [rawOrderId, isFiat, order.id]);
+    if (isFiat) return `NGN-${scrambledHex}`;
+    if (isGiftCard) return `GC-${scrambledHex}`;
+    return `ORD-${scrambledHex}`;
+  }, [rawOrderId, isFiat, isGiftCard, order.id]);
 
   const sendNotification = useCallback(async (to: string, subject: string, message: string) => {
     if (!to?.includes('@') || to.includes(' ')) return;
@@ -262,11 +265,10 @@ export default function OrderCard({
     if (!isSuccess) return;
 
     const handleSuccess = async () => {
-      if (actionRef.current === 'release' && !isFiat) {
+      if (actionRef.current === 'release' && !isOffChain) {
         push('info', 'Verifying transaction on-chain...');
         
         try {
-          // Retrieve token for the secure endpoint
           const token = await getAccessToken();
           if (!token) throw new Error("Auth token missing");
 
@@ -301,7 +303,7 @@ export default function OrderCard({
 
           if (result.success) {
             push('success', 'Funds released successfully!');
-            onUpdate(); // Deterministic UI refresh — no arbitrary timeout!
+            onUpdate();
           } else {
             push('warning', 'Funds released, but status sync delayed. Refresh in a moment.');
           }
@@ -344,7 +346,7 @@ export default function OrderCard({
     };
 
     handleSuccess();
-  }, [isSuccess, isFiat, order.buyer, order.seller, displayId, peerEmail, sendNotification, push, onUpdate, dbOrderId, order.scId, activeChainId, getAccessToken]);
+  }, [isSuccess, isOffChain, order.buyer, order.seller, displayId, peerEmail, sendNotification, push, onUpdate, dbOrderId, order.scId, activeChainId, getAccessToken]);
 
   const isBusy = isPending || isConfirming || isDbLoading;
 
@@ -353,7 +355,6 @@ export default function OrderCard({
     if (showChat) safeLocalStorage.set(`chat_read_${rawOrderId}`, Date.now().toString());
   }, [showChat, rawOrderId]);
 
-  // 🚀 THE FIX: Supabase is securely injected and added to dependency array
   useEffect(() => {
     if (!userAddress || !dbOrderId) return;
 
@@ -393,7 +394,7 @@ export default function OrderCard({
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [dbOrderId, userAddress, rawOrderId, supabase]); // <-- supabase dependency added!
+  }, [dbOrderId, userAddress, rawOrderId, supabase]);
 
   const openChat = () => {
     setHasUnread(false);
@@ -407,11 +408,43 @@ export default function OrderCard({
   };
 
   const handleAccept = async () => {
+    // 🚀 THE FIX: Explicit Gift Card Branch 
+    if (isGiftCard) {
+      setIsDbLoading(true);
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/api/giftcard/accept', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ order_id: dbOrderId }),
+        });
+        const data = await res.json();
+        if (!data.status) throw new Error(data.message || 'Failed to accept order');
+        
+        if (peerEmail) {
+          sendNotification(peerEmail, 'Order Accepted!', `The seller has accepted your Gift Card order (${displayId}). They are preparing your item/service.`);
+        }
+        push('success', 'Order accepted.');
+        onUpdate();
+      } catch (error: any) {
+        push('error', `Accept failed: ${error.message}`);
+      } finally {
+        setIsDbLoading(false);
+      }
+      return;
+    }
+
+    // ── Existing Crypto/Fiat logic
     if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
     setIsDbLoading(true);
     try {
       await executeUserAction('ACCEPT');
-      sendNotification(order.buyer, 'Order Accepted!', `The seller has accepted your order (${displayId}). They are preparing your item/service.`);
+      if (peerEmail) {
+        sendNotification(peerEmail, 'Order Accepted!', `The seller has accepted your order (${displayId}). They are preparing your item/service.`);
+      }
       push('success', 'Order accepted.');
       onUpdate();
     } catch (error: any) {
@@ -425,9 +458,12 @@ export default function OrderCard({
     if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
     setIsDbLoading(true);
     try {
+      // executeUserAction('SHIP') works for all modes (it just sets status = 'shipped' in DB)
       await executeUserAction('SHIP');
-      sendNotification(order.buyer, 'Order Shipped!', `The seller has marked your order (${displayId}) as shipped/delivered. Please verify and release the funds when you are satisfied.`);
-      push('success', 'Order marked as shipped.');
+      if (peerEmail) {
+        sendNotification(peerEmail, 'Order Shipped!', `The seller has marked your order (${displayId}) as shipped/delivered. Please verify and release the funds when you are satisfied.`);
+      }
+      push('success', 'Order marked as shipped/delivered.');
       onUpdate();
     } catch (error: any) {
       push('error', `Shipping update failed: ${error.message}`);
@@ -467,39 +503,53 @@ export default function OrderCard({
     const releaseNum = parseDisplayAmount(cleanAmountStr);
     if (!releaseNum) { push('error', 'Invalid release parameters.'); return; }
 
-    if (isFiat) {
+    // 🚀 THE FIX: Guard Release logic so GC and Fiat stay off-chain
+    if (isOffChain) {
       if (!dbOrderId) return;
       setIsDbLoading(true);
       try {
-        await executeUserAction('FIAT_RELEASE', { releaseAmount: releaseNum });
+        if (isGiftCard) {
+          // You will likely build a /api/giftcard/release endpoint for this,
+          // but for now we'll route it safely so it doesn't crash the frontend.
+          const token = await getAccessToken();
+          const res = await fetch('/api/giftcard/release', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ order_id: dbOrderId }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.status) throw new Error(data.message || 'Release failed');
 
-        push('success', `${releaseNum} NGN released. Funds will settle in the seller's bank account within 24 hours.`);
+          push('success', 'Gift Card released! The code is now revealed to the seller.');
+          if (peerEmail) {
+            sendNotification(peerEmail, 'Gift Card Released!', `The buyer has released the escrow for order ${displayId}. You can now view the decrypted Gift Card code in your dashboard.`);
+          }
+        } else {
+          // Fiat Release
+          await executeUserAction('FIAT_RELEASE', { releaseAmount: releaseNum });
+          push('success', `${releaseNum} NGN released. Funds will settle in the seller's bank account within 24 hours.`);
 
-        if (peerEmail) {
-          sendNotification(
-            peerEmail,
-            'Funds Released (Processing)!',
-            `The buyer has released ${releaseNum} NGN for order ${displayId}. This payout is processing and will arrive in your bank account within 24 hours.`,
-          );
+          if (peerEmail) {
+            sendNotification(peerEmail, 'Funds Released (Processing)!', `The buyer has released ${releaseNum} NGN for order ${displayId}. This payout is processing and will arrive in your bank account within 24 hours.`);
+          }
+
+          if (ADMIN_EMAIL) {
+            sendNotification(ADMIN_EMAIL, 'ACTION REQUIRED: Manual Fiat Payout', `Buyer released ${releaseNum} NGN for order ${dbOrderId}. Transfer to seller once Paystack settles.`);
+          }
         }
-
-        if (ADMIN_EMAIL) {
-          sendNotification(
-            ADMIN_EMAIL,
-            'ACTION REQUIRED: Manual Fiat Payout',
-            `Buyer released ${releaseNum} NGN for order ${dbOrderId}. Transfer to seller once Paystack settles.`,
-          );
-        }
-
         onUpdate();
       } catch (err: any) {
-        console.error('Fiat release error:', err);
+        console.error('Release error:', err);
         push('error', `Network error while processing release: ${err.message}`);
       } finally {
         setIsDbLoading(false);
         setReleaseAmount('');
       }
     } else {
+      // Smart Contract Release
       if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
 
       const decimals = order.token_symbol === 'USDC' ? 6 : 18;
@@ -534,7 +584,8 @@ export default function OrderCard({
   };
 
   const handleDispute = async () => {
-    if (isFiat) {
+    // 🚀 THE FIX: Guard Dispute logic so GC and Fiat stay off-chain
+    if (isOffChain) {
       if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
       try {
@@ -550,6 +601,7 @@ export default function OrderCard({
         setIsDbLoading(false);
       }
     } else {
+      // Smart Contract Dispute
       if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
       actionRef.current = 'dispute';
       writeContract({
@@ -570,7 +622,7 @@ export default function OrderCard({
         <>
           Are you sure you want to cancel order <strong className="text-white">{displayId}</strong>?
           <br /><br />
-          {isFiat
+          {isOffChain
             ? 'Your funds will be returned according to the escrow policy.'
             : 'The smart contract will return your locked funds.'}
           {' '}This action <span className="text-red-400 font-semibold">cannot be undone</span>.
@@ -583,7 +635,8 @@ export default function OrderCard({
   };
 
   const handleCancel = async () => {
-    if (isFiat) {
+    // 🚀 THE FIX: Guard Cancel logic so GC and Fiat stay off-chain
+    if (isOffChain) {
       if (!dbOrderId) { push('error', 'Invalid order ID.'); return; }
       setIsDbLoading(true);
       try {
@@ -596,6 +649,7 @@ export default function OrderCard({
         setIsDbLoading(false);
       }
     } else {
+      // Smart Contract Cancel
       if (order.scId === undefined) { push('error', 'Smart contract ID missing.'); return; }
       actionRef.current = 'cancel';
       writeContract({
