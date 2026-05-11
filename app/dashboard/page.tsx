@@ -930,8 +930,8 @@ function MainDashboard() {
         }),
       });
 
-      const data = await response.json();
-      if (!data.status) throw new Error(data.message || 'Failed to create gift card escrow');
+      const responseData = await response.json();
+      if (!responseData.status) throw new Error(responseData.message || 'Failed to create gift card escrow');
 
       // ── Step 3: Email the seller so they know the code is waiting
       if (gcSellerEmail) {
