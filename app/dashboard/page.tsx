@@ -166,6 +166,7 @@ function MainDashboard() {
   const [gcBrand, setGcBrand] = useState('');
   const [gcCode, setGcCode] = useState('');
   const [gcImage, setGcImage] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0); // 🚀 FIX: Forces visual reset of file input
 
   const [dbOrders, setDbOrders] = useState<Record<number, any>>({});
   const [dashboardTab, setDashboardTab] = useState<'buying' | 'selling'>('buying');
@@ -510,11 +511,6 @@ function MainDashboard() {
 
     const dbByKey = new Map<string, any[]>();
     Object.values(dbOrders).forEach((db: any) => {
-      // BUG FIX: Skip both fiat (paystack_ref) and gift card orders here.
-      // dbByKey is only for matching crypto DB rows to on-chain escrows.
-      // Gift card orders have no on-chain counterpart and must not pollute
-      // this map — a GC row keyed by wallet+amount could accidentally match
-      // a coincidentally identical crypto escrow.
       if (db.paystack_ref) return;
       if (db.trade_type === 'GIFT_CARD') return;
       const key = `${db.buyer_wallet_address?.toLowerCase()}|${db.seller_address?.toLowerCase()}|${Number(db.amount)}`;
@@ -633,12 +629,9 @@ function MainDashboard() {
       if (isMyEmailAsSeller) selling.push(fiatOrderObj);
     });
 
-    // ── BUG FIX: Third loop — pure-DB Gift Card orders.
-    // These have no paystack_ref and no on-chain counterpart.
-    // Without this loop they sit in dbOrders but never appear in the dashboard.
     Object.values(dbOrders).forEach((dbOrder: any) => {
       if (dbOrder.trade_type !== 'GIFT_CARD') return;
-      if (usedDbIds.has(dbOrder.id)) return; // already matched to an on-chain escrow (shouldn't happen but guard)
+      if (usedDbIds.has(dbOrder.id)) return; 
 
       const currentStatus = (dbOrder.status?.toLowerCase() || 'secured') as string;
 
@@ -648,7 +641,7 @@ function MainDashboard() {
 
       if (!isMyEmailAsBuyer && !isMyWalletAsBuyer && !isMyEmailAsSeller) return;
 
-      let gcStatusColor = 'bg-yellow-500/20 text-yellow-400'; // default: secured/pending
+      let gcStatusColor = 'bg-yellow-500/20 text-yellow-400'; 
       if (['success', 'completed'].includes(currentStatus))
         gcStatusColor = 'bg-slate-700 text-slate-300';
       else if (currentStatus === 'disputed')
@@ -668,8 +661,8 @@ function MainDashboard() {
         buyerEmail:     dbOrder.buyer_email     ?? undefined,
         amount:         BigInt(0),
         lockedBalance:  BigInt(0),
-        formattedTotal:  String(dbOrder.gc_amount ?? 0),
-        formattedLocked: isCompleted ? '0' : String(dbOrder.gc_amount ?? 0),
+        formattedTotal:  String(dbOrder.amount ?? 0),
+        formattedLocked: isCompleted ? '0' : String(dbOrder.amount ?? 0),
         token_symbol:   `${dbOrder.gc_brand ?? ''} GC`.trim(),
         token:          '',
         status:         isCompleted
@@ -853,19 +846,17 @@ function MainDashboard() {
   };
 
   const handleGiftCardTransaction = async () => {
-    // ── Trust gate
     if (trustLevel === null || trustLevel < 3) {
       showToastRef.current('Level 3 required to use Gift Card escrow.', 'error');
       return;
     }
 
-    // ── Field validation
     if (!gcSellerAddress.trim() || !gcAmount || !gcBrand || !gcCode) {
-      showToastRef.current('Please fill all Gift Card details.', 'error');
+      showToastRef.current("Please fill all Gift Card details.", 'error');
       return;
     }
     if (!gcImage) {
-      showToastRef.current('Please upload an image of the physical gift card.', 'error');
+      showToastRef.current("Please upload an image of the physical gift card.", 'error');
       return;
     }
 
@@ -875,35 +866,28 @@ function MainDashboard() {
       return;
     }
 
-    // ── BUG FIX: Gift card escrow is off-chain — no blockchain address resolution needed.
-    // The seller is identified purely by email (like fiat). We do NOT call
-    // resolveSellerAddress() here because that function hits /api/privy/resolve
-    // to get a wallet address, which is unnecessary overhead for a DB-only flow
-    // and will silently fail for sellers who haven't linked a wallet.
     const sellerIdentifier = gcSellerAddress.trim();
     const gcSellerEmail = isValidEmail(sellerIdentifier) ? sellerIdentifier : null;
 
-    // ── BUG FIX: Self-check must compare emails/identifiers, not blockchain addresses.
-    // The old code compared finalSellerAddress (a wallet addr) to userAddress, but
-    // gcSellerAddress here is an email. Compare against the buyer's active email.
-    if (gcSellerEmail && activeEmail &&
-        gcSellerEmail.toLowerCase() === activeEmail.toLowerCase()) {
+    if (gcSellerEmail && activeEmail && gcSellerEmail.toLowerCase() === activeEmail.toLowerCase()) {
       showToastRef.current('You cannot create an order with yourself.', 'error');
       return;
     }
 
     setIsWriting(true);
+    let uploadedFileName: string | undefined; // 🚀 FIX: Scoped to clean up on failure
+    
     try {
-      // ── Step 1: Upload physical card image to Supabase Storage
       showToastRef.current('Uploading card image…', 'info');
       const fileExt = gcImage.name.split('.').pop() ?? 'jpg';
       const fileName = `gc-${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+      uploadedFileName = fileName;
+
       const { error: uploadError } = await supabase.storage
         .from('gift-card-images')
         .upload(fileName, gcImage, { upsert: false });
       if (uploadError) throw new Error('Image upload failed: ' + uploadError.message);
 
-      // ── Step 2: Call backend to AES-256 encrypt the code and create the DB order
       showToastRef.current('Encrypting gift card code…', 'info');
       const token = await getAccessToken();
       const response = await fetch('/api/giftcard/create', {
@@ -920,7 +904,7 @@ function MainDashboard() {
           gc_brand:          sanitize(gcBrand, 50),
           gc_amount:         gcAmount,
           gc_code:           sanitize(gcCode, 200),
-          gc_image_url:      fileName, // 🚀 JUST PASS THE fileName HERE!
+          gc_image_url:      fileName, 
           trade_type:        'GIFT_CARD',
           status:            'secured',
         }),
@@ -929,7 +913,6 @@ function MainDashboard() {
       const responseData = await response.json();
       if (!responseData.status) throw new Error(responseData.message || 'Failed to create gift card escrow');
 
-      // ── Step 3: Email the seller so they know the code is waiting
       if (gcSellerEmail) {
         sendEmailRef.current(
           gcSellerEmail,
@@ -938,15 +921,20 @@ function MainDashboard() {
         );
       }
 
-      // ── Step 4: Success feedback + reset form
       setShowSuccessModal(true);
       setGcSellerAddress('');
       setGcAmount('');
       setGcBrand('');
       setGcCode('');
       setGcImage(null);
+      setFileInputKey(prev => prev + 1); // 🚀 FIX: Force un-controlled DOM node reset
       handleRefresh();
+
     } catch (err: any) {
+      if (uploadedFileName) {
+        // 🚀 FIX: Cleanup stranded image if DB transaction fails
+        supabase.storage.from('gift-card-images').remove([uploadedFileName]).catch(() => {});
+      }
       showToastRef.current(err.message || 'Transaction Error', 'error');
     } finally {
       setIsWriting(false);
@@ -991,7 +979,6 @@ function MainDashboard() {
             <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
               <CheckCircle2 className="w-12 h-12 text-emerald-400" />
             </div>
-            {/* BUG FIX: modal copy was fiat-only. Now contextual per mode. */}
             <h2 className="text-3xl font-extrabold text-white mb-3">
               {mode === 'giftcard' ? 'Gift Card Secured! 🎁' : 'Payment Successful!'}
             </h2>
@@ -1260,6 +1247,7 @@ function MainDashboard() {
                     <div>
                       <label htmlFor="gc-image" className="text-xs text-slate-400 ml-1 font-bold">UPLOAD PHYSICAL CARD IMAGE</label>
                       <input
+                        key={fileInputKey} // 🚀 FIX: Forcing React to visually reset the uncontrolled input 
                         id="gc-image"
                         type="file"
                         accept="image/*"
@@ -1271,7 +1259,6 @@ function MainDashboard() {
                     <button
                       type="button"
                       onClick={handleGiftCardTransaction}
-                      // BUG FIX: was `disabled={isWriting}` only — user could click with empty fields.
                       disabled={isWriting || !gcSellerAddress.trim() || !gcAmount || !gcBrand || !gcCode || !gcImage}
                       className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-bold mt-2 flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
                     >
