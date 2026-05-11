@@ -903,10 +903,6 @@ function MainDashboard() {
         .upload(fileName, gcImage, { upsert: false });
       if (uploadError) throw new Error('Image upload failed: ' + uploadError.message);
 
-      const { data } = await supabase.storage
-        .from('gift-card-images')
-        .createSignedUrl(order.gc_image_url, 3600); // 1 hour access
-
       // ── Step 2: Call backend to AES-256 encrypt the code and create the DB order
       showToastRef.current('Encrypting gift card code…', 'info');
       const token = await getAccessToken();
@@ -923,8 +919,8 @@ function MainDashboard() {
           seller_identifier: sellerIdentifier,
           gc_brand:          sanitize(gcBrand, 50),
           gc_amount:         gcAmount,
-          gc_code:           sanitize(gcCode, 200),  // backend encrypts with AES-256
-          gc_image_url:      publicUrl,
+          gc_code:           sanitize(gcCode, 200),
+          gc_image_url:      fileName, // 🚀 JUST PASS THE fileName HERE!
           trade_type:        'GIFT_CARD',
           status:            'secured',
         }),
