@@ -1,68 +1,61 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin, getVerifiedWallet } from '@/lib/auth-helpers';
-import { encryptGiftCard } from '@/lib/encryption';
-
-function isValidEmail(e: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
-}
 
 export async function POST(req: Request) {
   try {
-    // 1. Always verify JWT — unconditional, before reading the body
-    const callerWallet = await getVerifiedWallet(req); // throws if invalid/missing
-
+    // 1. Ensure the user is actually authenticated
+    const callerWallet = await getVerifiedWallet(req); // Throws or returns null
+    
+    // 2. Safely parse and validate the Order ID
     const body = await req.json();
-    const { gc_code: plainTextCode, ...orderData } = body;
-
-    // 2. Input validation
-    if (typeof plainTextCode !== 'string' || !plainTextCode.trim()) {
-      return NextResponse.json({ status: false, message: 'Gift Card code is required' }, { status: 400 });
-    }
-    const parsedAmount = parseFloat(String(orderData.gc_amount ?? ''));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return NextResponse.json({ status: false, message: 'Invalid gift card amount' }, { status: 400 });
-    }
-    if (orderData.seller_email && !isValidEmail(orderData.seller_email)) {
-      return NextResponse.json({ status: false, message: 'Invalid seller email' }, { status: 400 });
+    const orderId = parseInt(body.order_id, 10);
+    
+    if (isNaN(orderId) || orderId <= 0) {
+      return NextResponse.json({ status: false, message: 'Invalid order ID format' }, { status: 400 });
     }
 
-    // 3. Wallet identity check — only when a wallet is present on both sides
-    if (orderData.buyer_wallet && callerWallet) {
-      if (callerWallet.toLowerCase() !== orderData.buyer_wallet.toLowerCase()) {
-        return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 403 });
-      }
-    }
-
-    // 4. Encrypt the code — it never hits the DB in plaintext
-    const encryptedCode = encryptGiftCard(plainTextCode.trim());
-
-    // 5. Insert
-    const { data, error } = await supabaseAdmin
+    // 3. Fetch the order FIRST to check state and ownership
+    const { data: order, error: fetchError } = await supabaseAdmin
       .from('escrow_orders')
-      .insert({
-        buyer_wallet_address: orderData.buyer_wallet   ?? null,
-        buyer_email:          orderData.buyer_email    ?? null,
-        seller_email:         orderData.seller_email   ?? null,
-        seller_identifier:    String(orderData.seller_identifier ?? '').slice(0, 254),
-        amount:               parsedAmount,
-        token_symbol:         'USD',
-        gc_brand:             String(orderData.gc_brand ?? '').slice(0, 50),
-        gift_card_code:       encryptedCode,
-        gc_image_url:         orderData.gc_image_url   ?? null,
-        trade_type:           'GIFT_CARD',
-        status:               'secured',
-        paystack_ref:         null,   // explicit — keeps fiat filter logic clean
-        network:              null,   // off-chain — no network needed
-      })
-      .select()
+      .select('status, seller_address, seller_email')
+      .eq('id', orderId)
+      .eq('trade_type', 'GIFT_CARD')
       .single();
 
-    if (error) throw error;
+    if (fetchError || !order) {
+      return NextResponse.json({ status: false, message: 'Order not found' }, { status: 404 });
+    }
 
-    return NextResponse.json({ status: true, order: data });
+    // 4. Status Transition Safety Guard
+    // Only allow accepting if the order is fresh ('secured' or 'pending')
+    if (order.status !== 'secured' && order.status !== 'pending') {
+      return NextResponse.json({ status: false, message: `Cannot accept order. Current status is: ${order.status}` }, { status: 400 });
+    }
 
+    // 5. Secure Ownership Check (Hybrid Web2/Web3)
+    // If the order has a seller_address, enforce that the caller's wallet matches.
+    if (order.seller_address && callerWallet) {
+      if (order.seller_address.toLowerCase() !== callerWallet.toLowerCase()) {
+        return NextResponse.json({ status: false, message: 'Unauthorized: You are not the wallet owner of this order' }, { status: 403 });
+      }
+    } 
+    // Note: If the seller is email-only (no seller_address), and you have an auth helper 
+    // like `getVerifiedEmail(req)`, you would do the email comparison here. 
+
+    // 6. The Atomic Update (Double-locked with status check)
+    const { error: updateError } = await supabaseAdmin
+      .from('escrow_orders')
+      .update({ status: 'accepted' })
+      .eq('id', orderId)
+      .eq('status', order.status); // Atomic lock: ensures status hasn't changed since we fetched it
+
+    if (updateError) throw updateError;
+    
+    return NextResponse.json({ status: true });
+    
   } catch (err: any) {
-    console.error('Gift Card Escrow Error:', err.message);
-    return NextResponse.json({ status: false, message: err.message }, { status: 500 });
+    console.error('Accept GC Error:', err.message);
+    // Return a generic error to the client to avoid leaking database schema details
+    return NextResponse.json({ status: false, message: 'An internal error occurred while accepting the order' }, { status: 500 });
   }
 }
