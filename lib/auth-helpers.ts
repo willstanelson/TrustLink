@@ -19,6 +19,7 @@ const privy = new PrivyClient(
   process.env.PRIVY_APP_SECRET
 );
 
+// ── Original Wallet Helper (Keeps existing crypto routes safe) ──
 export async function getVerifiedWallet(req: Request): Promise<string> {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Unauthorized');
@@ -33,4 +34,37 @@ export async function getVerifiedWallet(req: Request): Promise<string> {
 
   if (!wallet?.address) throw new Error('No wallet found');
   return wallet.address.toLowerCase();
+}
+
+// ── NEW: Unified Identity Helper for Web2/Web3 Hybrid Routes ──
+export async function getVerifiedIdentity(req: Request): Promise<{ wallet: string | null, email: string | null }> {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) throw new Error('Unauthorized');
+
+  const privyToken = authHeader.split(' ')[1];
+  
+  // 1. Verify the token cryptographically (throws if invalid/forged)
+  const claims = await privy.verifyAuthToken(privyToken);
+  
+  // 2. Fetch the full user profile from Privy
+  const privyUser = await privy.getUser(claims.userId);
+
+  // 3. Extract Wallet (if one exists)
+  const walletAccount = privyUser.linkedAccounts.find(
+    (a): a is WalletWithMetadata => a.type === 'wallet'
+  );
+  const wallet = walletAccount?.address ? walletAccount.address.toLowerCase() : null;
+
+  // 4. Extract Email (Checking native email or OAuth providers)
+  const emailRaw = 
+    privyUser.email?.address || 
+    privyUser.google?.email || 
+    privyUser.apple?.email || 
+    privyUser.discord?.email || 
+    null;
+    
+  const email = emailRaw ? emailRaw.toLowerCase() : null;
+
+  // Return both identifiers safely
+  return { wallet, email };
 }

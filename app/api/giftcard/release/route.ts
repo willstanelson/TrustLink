@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('escrow_orders')
-      .select('status, seller_address, seller_email')
+      .select('status, buyer_wallet_address, buyer_email')
       .eq('id', orderId)
       .eq('trade_type', 'GIFT_CARD')
       .single();
@@ -23,13 +23,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: false, message: 'Order not found' }, { status: 404 });
     }
 
-    if (order.status !== 'secured' && order.status !== 'pending') {
-      return NextResponse.json({ status: false, message: `Cannot accept order. Current status is: ${order.status}` }, { status: 400 });
+    if (order.status !== 'accepted' && order.status !== 'shipped') {
+      return NextResponse.json({ status: false, message: `Cannot release. Current status is: ${order.status}` }, { status: 400 });
     }
 
-    // 🚀 THE FIX: Flexible Identity Matching (Handles hybrid users with both wallet and email)
-    const orderWallet = order.seller_address?.toLowerCase();
-    const orderEmail  = order.seller_email?.toLowerCase();
+    // 🚀 THE FIX: Flexible Identity Matching
+    const orderWallet = order.buyer_wallet_address?.toLowerCase();
+    const orderEmail  = order.buyer_email?.toLowerCase();
     const activeWallet = callerWallet?.toLowerCase();
     const activeEmail  = callerEmail?.toLowerCase();
 
@@ -38,25 +38,25 @@ export async function POST(req: Request) {
     if (orderEmail && activeEmail && orderEmail === activeEmail) isAuthorized = true;
 
     if (!isAuthorized) {
-      return NextResponse.json({ status: false, message: 'Unauthorized: Identity does not match the seller' }, { status: 403 });
+      return NextResponse.json({ status: false, message: 'Unauthorized: Identity does not match the buyer' }, { status: 403 });
     }
 
     const { error: updateError } = await supabaseAdmin
       .from('escrow_orders')
-      .update({ status: 'accepted' })
+      .update({ status: 'completed' })
       .eq('id', orderId)
-      .eq('status', order.status);
+      .eq('status', order.status); 
 
     if (updateError) throw updateError;
     
     return NextResponse.json({ status: true });
     
   } catch (err: any) {
-    console.error('Accept GC Error:', err.message);
+    console.error('Release GC Error:', err.message);
     // 🚀 THE FIX: Catch Privy token expirations and return a 401 instead of a 500
     if (err.message.includes('jwt expired') || err.message === 'Unauthorized' || err.message.includes('token')) {
       return NextResponse.json({ status: false, message: 'Session expired. Please log in again.' }, { status: 401 });
     }
-    return NextResponse.json({ status: false, message: 'An internal error occurred while accepting the order' }, { status: 500 });
+    return NextResponse.json({ status: false, message: 'An internal error occurred while releasing the order' }, { status: 500 });
   }
 }
