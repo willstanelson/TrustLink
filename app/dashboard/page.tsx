@@ -679,7 +679,7 @@ function MainDashboard() {
         isCompleted,
         isDisputed:  currentStatus === 'disputed',
         gcBrand:     dbOrder.gc_brand     ?? '',
-        gcImageUrl:  dbOrder.gc_image_url ?? '',
+        gc_image_url:  dbOrder.gc_image_url ?? '',
       };
 
       if (isMyEmailAsBuyer || isMyWalletAsBuyer) buying.push(gcOrderObj);
