@@ -842,28 +842,34 @@ export default function OrderCard({
         {/* Gift Card Reveal Section */}
         {isGiftCard && (status === 'COMPLETED' || isCompleted) && isSellerView && (
           <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg flex flex-col gap-3">
-            {gc_image_url && (
-              <a href={gc_image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-400 hover:text-blue-300 font-medium flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                View Gift Card Image
-              </a>
-            )}
-
-            <hr className="border-slate-700" />
-
+            
             {revealedCode ? (
-              <div className="flex justify-between items-center bg-slate-900 p-3 rounded border border-emerald-500/30">
-                <span className="font-mono text-emerald-400 font-bold tracking-widest">{revealedCode}</span>
-                <button onClick={() => navigator.clipboard.writeText(revealedCode).then(() => push('success', 'Copied!'))} className="text-xs px-3 py-1 bg-emerald-500/10 text-emerald-400 font-bold rounded hover:bg-emerald-500/20">
-                  Copy Code
-                </button>
-              </div>
+              // 🟢 WHAT THEY SEE AFTER CLICKING REVEAL
+              <>
+                <div className="flex justify-between items-center bg-slate-900 p-3 rounded border border-emerald-500/30">
+                  <span className="font-mono text-emerald-400 font-bold tracking-widest">{revealedCode}</span>
+                  <button onClick={() => navigator.clipboard.writeText(revealedCode).then(() => push('success', 'Copied!'))} className="text-xs px-3 py-1 bg-emerald-500/10 text-emerald-400 font-bold rounded hover:bg-emerald-500/20 transition-colors">
+                    Copy Code
+                  </button>
+                </div>
+
+                {/* Only show the image link AFTER the code is revealed */}
+                {gc_image_url && (
+                  <>
+                    <hr className="border-slate-700" />
+                    <a href={gc_image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-400 hover:text-blue-300 font-medium flex items-center justify-center gap-2 bg-slate-900/50 py-2.5 rounded hover:bg-slate-900 transition-colors border border-slate-700/50">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      View Physical Card Image
+                    </a>
+                  </>
+                )}
+              </>
             ) : (
-              <button onClick={handleRevealCode} disabled={isRevealing} className="w-full py-2 bg-indigo-600/20 text-indigo-400 font-bold text-sm rounded hover:bg-indigo-600/30 disabled:opacity-50">
-                {isRevealing ? 'Decrypting...' : 'Reveal Gift Card Code'}
+              // 🔴 WHAT THEY SEE BEFORE CLICKING REVEAL
+              <button onClick={handleRevealCode} disabled={isRevealing} className="w-full py-3 bg-indigo-600/20 text-indigo-400 font-bold text-sm rounded-lg hover:bg-indigo-600/30 transition-colors disabled:opacity-50 border border-indigo-500/30">
+                {isRevealing ? 'Decrypting Secure Vault...' : 'Reveal Gift Card Code & Image'}
               </button>
             )}
           </div>
