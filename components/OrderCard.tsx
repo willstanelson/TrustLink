@@ -200,6 +200,218 @@ function getTokenDecimals(symbol: string): number {
   return symbol === 'USDC' ? 6 : 18;
 }
 
+// ─── New Component Helpers ────────────────────────────────────────────────────
+
+/**
+ * Strips anything that isn't a digit or a single decimal point.
+ * Keeps the raw string intact for downstream parseUnits calls while
+ * preventing garbage characters from entering state.
+ */
+function sanitizeAmountInput(raw: string) {
+  const stripped = raw.replace(/[^0-9.]/g, '');
+  const parts = stripped.split('.');
+  // Collapse multiple decimal points: "1.2.3" → "1.23"
+  return parts.length > 2
+    ? `${parts[0]}.${parts.slice(1).join('')}`
+    : stripped;
+}
+
+/**
+ * UI-only validation using parseFloat.
+ * Never pass the result of this into a smart contract call —
+ * JS doubles lose precision on highly fractional token amounts.
+ */
+function isValidReleaseAmount(rawString: string, lockedAmount: string) {
+  if (!rawString || rawString === '.') return false;
+  const n = parseFloat(rawString);
+  return !isNaN(n) && n > 0 && n <= parseFloat(lockedAmount);
+}
+
+// ─── SplitReleaseControl ──────────────────────────────────────────────────────
+
+function SplitReleaseControl({ 
+  lockedAmount, 
+  isBusy, 
+  onRelease 
+}: { 
+  lockedAmount: string; 
+  isBusy: boolean; 
+  onRelease: (amount: string) => void;
+}) {
+  const [releaseAmount, setReleaseAmount] = useState('');
+
+  const isValid = useMemo(
+    () => isValidReleaseAmount(releaseAmount, lockedAmount),
+    [releaseAmount, lockedAmount]
+  );
+  const isDisabled = isBusy || !isValid;
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setReleaseAmount(sanitizeAmountInput(e.target.value));
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    if (!isValid) return;
+    await onRelease(releaseAmount);
+    setReleaseAmount('');
+  }, [isValid, releaseAmount, onRelease]);
+
+  const maxDisplay = useMemo(() => {
+    const n = parseFloat(lockedAmount);
+    if (isNaN(n)) return lockedAmount;
+    return n.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 8,
+    });
+  }, [lockedAmount]);
+
+  return (
+    <div className="flex-[2] flex gap-2 items-start">
+      <div className="flex flex-col gap-1">
+        <input
+          type="text"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={releaseAmount}
+          onChange={handleChange}
+          aria-label="Partial release amount"
+          aria-describedby="split-release-hint"
+          disabled={isBusy}
+          className="w-24 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-xs text-white
+                     focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 outline-none
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors tabular-nums"
+        />
+        <span
+          id="split-release-hint"
+          className="text-[10px] text-slate-500 pl-1 tabular-nums leading-none"
+        >
+          max {maxDisplay}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={isDisabled}
+        className="flex-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700
+                   text-white rounded-lg text-xs font-bold py-3
+                   flex items-center justify-center gap-1.5
+                   disabled:opacity-50 disabled:cursor-not-allowed
+                   transition-colors"
+      >
+        {isBusy
+          ? <Loader2 className="animate-spin w-4 h-4" aria-hidden="true" />
+          : 'Split Release'}
+      </button>
+    </div>
+  );
+}
+
+// ─── BuyerControls ────────────────────────────────────────────────────────────
+
+type BuyerControlsProps = {
+  order: {
+    isAccepted: boolean;
+    isShipped: boolean;
+    isGiftCard: boolean;
+    lockedAmount: string;
+  };
+  isBusy: boolean;
+  onCancel: () => void;
+  onRelease: (amount: string) => void;
+  onDispute: () => void;
+};
+
+function BuyerControls({ order, isBusy, onCancel, onRelease, onDispute }: BuyerControlsProps) {
+  const canCancel    = !order.isAccepted;
+  const isDelivering = order.isAccepted && !order.isShipped;
+  const isDelivered  = order.isShipped;
+  const canDispute   = order.isAccepted;
+
+  const handleFullRelease = useCallback(() => {
+    onRelease(order.lockedAmount);
+  }, [onRelease, order.lockedAmount]);
+
+  return (
+    <>
+      {canCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isBusy}
+          aria-label="Cancel order"
+          className="bg-red-500 hover:bg-red-400 active:bg-red-600
+                     text-white px-4 py-3 rounded-lg text-xs font-bold
+                     flex items-center justify-center gap-1.5
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isBusy
+            ? <Loader2 className="animate-spin w-4 h-4" aria-hidden="true" />
+            : 'Cancel'}
+        </button>
+      )}
+
+      {isDelivering && (
+        <>
+          {!order.isGiftCard && (
+            <SplitReleaseControl
+              lockedAmount={order.lockedAmount}
+              isBusy={isBusy}
+              onRelease={onRelease}
+            />
+          )}
+
+          {order.isGiftCard && (
+            <div
+              role="status"
+              aria-label="Waiting for seller to deliver gift card"
+              className="flex-[2] bg-slate-700/60 text-slate-400 py-3 rounded-lg text-xs font-bold
+                         flex items-center justify-center gap-2
+                         border border-slate-600/50 cursor-not-allowed select-none"
+            >
+              <Clock className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+              Waiting for delivery
+            </div>
+          )}
+        </>
+      )}
+
+      {isDelivered && (
+        <button
+          type="button"
+          onClick={handleFullRelease}
+          disabled={isBusy}
+          className="flex-[2] bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700
+                     text-white rounded-lg text-xs font-bold py-3
+                     flex items-center justify-center gap-1.5
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isBusy
+            ? <Loader2 className="animate-spin w-4 h-4" aria-hidden="true" />
+            : order.isGiftCard ? 'Release gift card' : 'Release full amount'}
+        </button>
+      )}
+
+      {canDispute && (
+        <button
+          type="button"
+          onClick={onDispute}
+          disabled={isBusy}
+          aria-label="Open a dispute"
+          title="Open a dispute"
+          className="bg-red-900/20 hover:bg-red-900/30 active:bg-red-900/40
+                     text-red-400 border border-red-900/30
+                     px-3 py-3 rounded-lg
+                     flex items-center justify-center
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+        </button>
+      )}
+    </>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function OrderCard({
   order,
@@ -238,7 +450,6 @@ export default function OrderCard({
   const { supabase } = useAuth();
 
   const [showChat, setShowChat] = useState(false);
-  const [releaseAmount, setReleaseAmount] = useState('');
   const [hasUnread, setHasUnread] = useState(false);
   const [isDbLoading, setIsDbLoading] = useState(false);
   const [revealedCode, setRevealedCode] = useState<string | null>(null);
@@ -422,7 +633,6 @@ export default function OrderCard({
       )
       .subscribe();
 
-    // 🚀 FIX: Prevented the TypeScript build error by ensuring a void return type
     return () => {
       supabase.removeChannel(channel);
     };
@@ -542,7 +752,6 @@ export default function OrderCard({
         push('error', `Release failed: ${(err as Error).message}`);
       } finally {
         setIsDbLoading(false);
-        setReleaseAmount('');
       }
     } else {
       if (scId === undefined) return;
@@ -688,8 +897,6 @@ export default function OrderCard({
     <>
       <div className={`bg-slate-800/40 border rounded-xl p-5 mb-4 transition-all relative ${showChat ? 'border-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]' : 'border-slate-700 hover:border-slate-600'}`}>
         
-        {/* 🚀 RESTORED: The complete UI structure for Header, Progress, and Counterparty */}
-        
         {/* HEADER */}
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-2 items-center">
@@ -763,53 +970,26 @@ export default function OrderCard({
 
           {!isTerminal && (
             <>
-              {/* Buyer Controls */}
+              {/* ── Buyer controls ── */}
               {!isSellerView && (
-                <>
-                  {!isAccepted && (
-                    <button onClick={confirmCancel} disabled={isBusy} className="bg-red-500 hover:bg-red-400 text-white px-4 rounded-lg text-xs font-bold flex items-center justify-center disabled:opacity-50">
-                      {isBusy ? <Loader2 className="animate-spin w-4 h-4" /> : 'Cancel'}
-                    </button>
-                  )}
-
-                  {isAccepted && !isShipped && !isGiftCard && (
-                    <div className="flex-[2] flex gap-2">
-                      <input
-                        type="number"
-                        placeholder="0.00"
-                        value={releaseAmount}
-                        onChange={e => setReleaseAmount(e.target.value)}
-                        className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 text-xs text-white focus:border-emerald-500 outline-none"
-                      />
-                      <button
-                        onClick={() => handleReleaseClick(releaseAmount)}
-                        disabled={isBusy || !releaseAmount}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center disabled:opacity-50"
-                      >
-                        {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto" /> : 'Split Release'}
-                      </button>
-                    </div>
-                  )}
-
-                  {(isShipped || (isAccepted && isGiftCard)) && (
-                    <button
-                      onClick={() => handleReleaseClick(formattedLocked)}
-                      disabled={isBusy}
-                      className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3 flex items-center justify-center disabled:opacity-50"
-                    >
-                      {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto" /> : isGiftCard ? 'Release Gift Card' : 'Release Full Amount'}
-                    </button>
-                  )}
-
-                  {isAccepted && (
-                    <button onClick={confirmDispute} disabled={isBusy} className="bg-red-900/20 text-red-400 border border-red-900/30 px-3 rounded-lg flex items-center justify-center disabled:opacity-50">
-                      <AlertTriangle className="w-4 h-4" />
-                    </button>
-                  )}
-                </>
+                <BuyerControls
+                  order={{
+                    isAccepted: order.isAccepted,
+                    isShipped: order.isShipped,
+                    isGiftCard: isGiftCard,
+                    // Convert the locked amount to a clean, comma-free raw string for the component
+                    lockedAmount: isOffChain 
+                      ? String(parseDisplayAmount(order.formattedLocked) || 0)
+                      : formatUnits(order.lockedBalance, getTokenDecimals(order.token_symbol))
+                  }}
+                  isBusy={isBusy}
+                  onCancel={confirmCancel}
+                  onRelease={handleReleaseClick} 
+                  onDispute={confirmDispute}
+                />
               )}
 
-              {/* Seller Controls */}
+              {/* ── Seller controls ── */}
               {isSellerView && (
                 <>
                   {!isAccepted && (
