@@ -422,9 +422,12 @@ export default function OrderCard({
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+ // 🚀 FIX: Added curly braces to prevent returning the Promise
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [dbOrderId, userAddress, rawOrderId, supabase]);
-
+  
   const openChat = useCallback(() => {
     setHasUnread(false);
     setShowChat(true);
