@@ -888,6 +888,13 @@ function MainDashboard() {
         .upload(fileName, gcImage, { upsert: false });
       if (uploadError) throw new Error('Image upload failed: ' + uploadError.message);
 
+      // 🚀 THE FIX: Get the Public URL from Supabase right after the upload
+      const { data: publicUrlData } = supabase.storage
+        .from('gift-card-images')
+        .getPublicUrl(fileName);
+
+      const fullImageUrl = publicUrlData.publicUrl;
+
       showToastRef.current('Encrypting gift card code…', 'info');
       const token = await getAccessToken();
       const response = await fetch('/api/giftcard/create', {
@@ -904,7 +911,7 @@ function MainDashboard() {
           gc_brand:          sanitize(gcBrand, 50),
           gc_amount:         gcAmount,
           gc_code:           sanitize(gcCode, 200),
-          gc_image_url:      fileName, 
+          gc_image_url:      fullImageUrl, // <--- Pass the full https:// URL here!
           trade_type:        'GIFT_CARD',
           status:            'secured',
         }),
@@ -927,19 +934,17 @@ function MainDashboard() {
       setGcBrand('');
       setGcCode('');
       setGcImage(null);
-      setFileInputKey(prev => prev + 1); // 🚀 FIX: Force un-controlled DOM node reset
+      setFileInputKey(prev => prev + 1);
       handleRefresh();
 
     } catch (err: any) {
       if (uploadedFileName) {
-        // 🚀 FIX: Cleanup stranded image if DB transaction fails
         supabase.storage.from('gift-card-images').remove([uploadedFileName]).catch(() => {});
       }
       showToastRef.current(err.message || 'Transaction Error', 'error');
     } finally {
       setIsWriting(false);
     }
-  };
 
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
