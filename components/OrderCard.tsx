@@ -422,12 +422,12 @@ export default function OrderCard({
       )
       .subscribe();
 
- // 🚀 FIX: Added curly braces to prevent returning the Promise
+    // 🚀 FIX: Prevented the TypeScript build error by ensuring a void return type
     return () => {
       supabase.removeChannel(channel);
     };
   }, [dbOrderId, userAddress, rawOrderId, supabase]);
-  
+
   const openChat = useCallback(() => {
     setHasUnread(false);
     setShowChat(true);
@@ -687,14 +687,83 @@ export default function OrderCard({
   return (
     <>
       <div className={`bg-slate-800/40 border rounded-xl p-5 mb-4 transition-all relative ${showChat ? 'border-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.3)]' : 'border-slate-700 hover:border-slate-600'}`}>
-        {/* Header, Progress, Banner, Counterparty - unchanged */}
+        
+        {/* 🚀 RESTORED: The complete UI structure for Header, Progress, and Counterparty */}
+        
+        {/* HEADER */}
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex gap-2 items-center">
+            <span className="bg-slate-800 text-slate-400 text-xs font-mono px-2 py-1 rounded">
+              {displayId}
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-1 rounded border ${statusColor}`}>
+              {status}
+            </span>
+          </div>
+          <div className="text-right">
+            <div className="text-white font-bold text-lg">
+              {formattedLocked} <span className="text-sm text-slate-500">{token_symbol}</span>
+            </div>
+            <div className="text-xs text-slate-500">Total: {formattedTotal}</div>
+          </div>
+        </div>
+
+        {/* PROGRESS BAR */}
+        <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mb-2">
+          <div
+            className="bg-emerald-500 h-full transition-all"
+            style={{ width: `${percentPaid}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-6">
+          <span>Paid: {percentPaid}%</span>
+          <span>Locked: {100 - percentPaid}%</span>
+        </div>
+
+        {/* FIAT 24-HOUR INFO BANNER */}
+        {isFiat && !isTerminal && (
+          <div className="flex items-start gap-2 bg-blue-900/10 border border-blue-500/20 p-3 rounded-lg mb-6">
+            <Clock className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-400 leading-relaxed">
+              <strong className="text-blue-400">Fiat Settlement:</strong> Due to standard bank processing times, fiat payouts can only be completed a minimum of <strong className="text-slate-300">24 hours after the order is created</strong>, even if the buyer releases the funds earlier.
+            </p>
+          </div>
+        )}
+
+        {/* COUNTERPARTY */}
+        <div className="flex items-center gap-2 mb-6 text-xs text-slate-400">
+          <span>{isSellerView ? 'Buyer:' : 'Seller:'}</span>
+          <TrustBadge address={peerAddress} />
+        </div>
 
         {/* ACTIONS */}
         <div className="flex flex-wrap gap-3">
-          {/* Chat button - unchanged */}
+          {/* Chat button */}
+          <button
+            onClick={openChat}
+            className={`relative flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all border ${
+              hasUnread
+                ? 'bg-slate-700 text-white border-emerald-500'
+                : 'bg-slate-800 text-white border-slate-600 hover:bg-slate-700'
+            }`}
+          >
+            {hasUnread ? (
+              <BellRing className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+            ) : (
+              <MessageCircle className="w-3.5 h-3.5" />
+            )}
+            {showChat ? 'Chat Open' : hasUnread ? 'New Message!' : 'Chat'}
+            {hasUnread && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-slate-900" />
+              </span>
+            )}
+          </button>
 
           {!isTerminal && (
             <>
+              {/* Buyer Controls */}
               {!isSellerView && (
                 <>
                   {!isAccepted && (
@@ -717,7 +786,7 @@ export default function OrderCard({
                         disabled={isBusy || !releaseAmount}
                         className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center disabled:opacity-50"
                       >
-                        {isBusy ? <Loader2 className="animate-spin w-4 h-4" /> : 'Split Release'}
+                        {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto" /> : 'Split Release'}
                       </button>
                     </div>
                   )}
@@ -728,7 +797,7 @@ export default function OrderCard({
                       disabled={isBusy}
                       className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold py-3 flex items-center justify-center disabled:opacity-50"
                     >
-                      {isBusy ? <Loader2 className="animate-spin w-4 h-4" /> : isGiftCard ? 'Release Gift Card' : 'Release Full Amount'}
+                      {isBusy ? <Loader2 className="animate-spin w-4 h-4 mx-auto" /> : isGiftCard ? 'Release Gift Card' : 'Release Full Amount'}
                     </button>
                   )}
 
@@ -740,6 +809,7 @@ export default function OrderCard({
                 </>
               )}
 
+              {/* Seller Controls */}
               {isSellerView && (
                 <>
                   {!isAccepted && (
@@ -774,6 +844,10 @@ export default function OrderCard({
           <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700 rounded-lg flex flex-col gap-3">
             {gc_image_url && (
               <a href={gc_image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-400 hover:text-blue-300 font-medium flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
                 View Gift Card Image
               </a>
             )}
