@@ -609,7 +609,7 @@ export default function OrderCard({
     }
   }, [dbOrderId, getAccessToken, push]);
 
-  // ── Release ────────────────────────────────────────────────────────────────
+// ── Release ────────────────────────────────────────────────────────────────
 
   const handleReleaseClick = useCallback(
     (amountStr: string) => {
@@ -620,28 +620,49 @@ export default function OrderCard({
         return;
       }
 
-      const decimals     = getTokenDecimals(order.token_symbol);
-      const releaseUnits = parseUnits(String(releaseNum), decimals);
-
-      if (releaseUnits > order.lockedBalance) {
-        // Derive human-readable locked amount from BigInt — avoids re-parsing
-        // a formatted string and eliminates float-precision risk.
-        const lockedFormatted = formatUnits(order.lockedBalance, decimals);
-        push('error', `Cannot release more than the locked amount (${lockedFormatted} ${order.token_symbol}).`);
-        return;
-      }
-
       const cleanAmount = String(releaseNum);
-      if (releaseUnits < order.lockedBalance) {
-        setPendingReleaseAmount(cleanAmount);
-        setShowSplitWarning(true);
+
+      if (isOffChain) {
+        // 🚀 FIX: Web2 Logic (Gift Cards & Fiat) — Compare flat numbers
+        const lockedNum = parseDisplayAmount(order.formattedLocked);
+        if (lockedNum === null) {
+          push('error', 'Could not determine locked amount. Please refresh.');
+          return;
+        }
+        
+        if (releaseNum > lockedNum) {
+          push('error', `Cannot release more than the locked amount (${lockedNum} ${order.token_symbol}).`);
+          return;
+        }
+
+        if (releaseNum < lockedNum) {
+          setPendingReleaseAmount(cleanAmount);
+          setShowSplitWarning(true);
+        } else {
+          executeRelease(cleanAmount);
+        }
       } else {
-        executeRelease(cleanAmount);
+        // 🛡️ Web3 Logic (Crypto) — Compare exact BigInts to prevent precision loss
+        const decimals = getTokenDecimals(order.token_symbol);
+        const releaseUnits = parseUnits(cleanAmount, decimals);
+
+        if (releaseUnits > order.lockedBalance) {
+          const lockedFormatted = formatUnits(order.lockedBalance, decimals);
+          push('error', `Cannot release more than the locked amount (${lockedFormatted} ${order.token_symbol}).`);
+          return;
+        }
+
+        if (releaseUnits < order.lockedBalance) {
+          setPendingReleaseAmount(cleanAmount);
+          setShowSplitWarning(true);
+        } else {
+          executeRelease(cleanAmount);
+        }
       }
     },
-    [order.lockedBalance, order.token_symbol, push],
+    [isOffChain, order.formattedLocked, order.lockedBalance, order.token_symbol, push, executeRelease],
   );
-
+  
   const executeRelease = useCallback(
     async (cleanAmountStr: string) => {
       const releaseNum = parseDisplayAmount(cleanAmountStr);
