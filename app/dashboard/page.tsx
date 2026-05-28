@@ -945,6 +945,7 @@ function MainDashboard() {
     } finally {
       setIsWriting(false);
     }
+  };
 
   const activeOrdersList = dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
   const displayedOrders = activeOrdersList.filter((order: any) => order.type.toLowerCase() === mode);
