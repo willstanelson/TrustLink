@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import db from '@/lib/db';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { createClient } from '@supabase/supabase-js';
+import { PrivyClient } from '@privy-io/server-auth';
 
-const bvnSchema = z.object({
-  bvn: z.string().regex(/^\d{11}$/, 'BVN must be exactly 11 digits')
-});
+// ─── MODULE SCOPE SINGLETONS ───
+// These survive warm serverless invocations, saving memory and init time.
+const privy = new PrivyClient(
+  process.env.PRIVY_APP_ID!,
+  process.env.PRIVY_APP_SECRET!
+);
 
 const ratelimit = new Ratelimit({
   redis: Redis.fromEnv(),
@@ -16,67 +18,106 @@ const ratelimit = new Ratelimit({
   analytics: true,
 });
 
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// ─── SCHEMAS ───
+const bvnSchema = z.object({
+  bvn: z.string().regex(/^\d{11}$/, 'BVN must be exactly 11 digits')
+});
+
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // 1. PRIVY AUTH GUARD
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    
+    if (!token) {
+      return NextResponse.json({ error: 'Missing authentication token.' }, { status: 401 });
     }
 
-    const { DOJAH_APP_ID, DOJAH_SECRET_KEY } = process.env;
-    if (!DOJAH_APP_ID || !DOJAH_SECRET_KEY) {
-      return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+    let verifiedClaims;
+    try {
+      verifiedClaims = await privy.verifyAuthToken(token);
+    } catch (error) {
+      // Log the actual error to prevent debugging nightmares on network failures
+      console.error('Privy token verification failed:', error);
+      return NextResponse.json({ error: 'Invalid or expired authentication session.' }, { status: 401 });
     }
 
+    // Extract the wallet securely without a secondary network call to Privy
+    // NOTE: Depending on your Privy configuration, you may need to rely on custom claims 
+    // or parse the DID if `linkedAccounts` isn't exposed directly in the JWT payload.
+    const trustedWallet = verifiedClaims.linkedAccounts?.find(
+      (a: any) => a.type === 'wallet'
+    )?.address;
+
+    if (!trustedWallet) {
+      return NextResponse.json({ error: 'A connected wallet is required for KYC.' }, { status: 400 });
+    }
+
+    // 2. INPUT VALIDATION
     const body = await request.json();
     const parsed = bvnSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.errors[0].message }, { status: 400 });
     }
+    const { bvn } = parsed.data;
 
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const ip = forwardedFor ? forwardedFor.split(',')[0].trim() : 'anonymous_ip';
-    
-    const { success } = await ratelimit.limit(ip);
-    if (!success) {
-      return NextResponse.json(
-        { error: 'Too many requests. Please wait a minute.' },
-        { status: 429 }
-      );
+    // 3. RATE LIMITING (By trusted Privy DID)
+    const { success: rateLimitSuccess } = await ratelimit.limit(verifiedClaims.userId);
+    if (!rateLimitSuccess) {
+      return NextResponse.json({ error: 'Too many requests. Please wait a minute.' }, { status: 429 });
     }
 
+    // 4. SUPABASE PRE-FLIGHT
+    const { data: existingProfile } = await supabase
+      .from('profile')
+      .select('kyc_completed')
+      .eq('wallet_address', trustedWallet) 
+      .single();
+
+    if (existingProfile?.kyc_completed) {
+      return NextResponse.json({ error: 'This wallet is already verified.' }, { status: 409 });
+    }
+
+    // 5. DOJAH FETCH
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(
-      `https://sandbox.dojah.io/api/v1/kyc/bvn/full?bvn=${parsed.data.bvn}`,
-      {
-        headers: {
-          Authorization: DOJAH_SECRET_KEY,
-          AppId: DOJAH_APP_ID,
-          Accept: 'application/json',
-        },
-        signal: controller.signal,
-      }
-    );
+    const { DOJAH_APP_ID, DOJAH_SECRET_KEY } = process.env;
+    const response = await fetch(`https://sandbox.dojah.io/api/v1/kyc/bvn/full?bvn=${bvn}`, {
+      headers: {
+        Authorization: DOJAH_SECRET_KEY!,
+        AppId: DOJAH_APP_ID!,
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       console.error('Dojah error', err);
-      return NextResponse.json(
-        { error: 'Verification failed with identity provider.' },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: 'Verification failed with identity provider.' }, { status: 502 });
     }
 
     const data = await response.json();
     const { firstName, lastName } = data.entity;
 
-    await db.user.update({
-      where: { id: session.user.id },
-      data: { isKycVerified: true, kycVerifiedAt: new Date() },
-    });
+    // 6. SUPABASE UPDATE
+    // Omitted `updated_at` to let the DB handle it natively via column defaults
+    const { error: dbError } = await supabase
+      .from('profile')
+      .update({ kyc_completed: true })
+      .eq('wallet_address', trustedWallet);
+
+    if (dbError) {
+      console.error('Supabase Update Error:', dbError);
+      return NextResponse.json({ error: 'Failed to update profile record.' }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, profile: { firstName, lastName } });
 

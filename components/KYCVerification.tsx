@@ -1,10 +1,14 @@
 'use client';
 import { useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { usePrivy } from '@privy-io/react-auth';
 import { ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
-export default function KYCVerification() {
-  const { update } = useSession();
+interface KYCVerificationProps {
+  onSuccess?: () => void;
+}
+
+export default function KYCVerification({ onSuccess }: KYCVerificationProps) {
+  const { getAccessToken, user } = usePrivy();
   
   const [bvn, setBvn] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -18,14 +22,34 @@ export default function KYCVerification() {
       return;
     }
 
+    // NOTE: user?.wallet?.address checks the default/active wallet. 
+    // If a user has multiple wallets linked in Privy (e.g., embedded + external),
+    // this ensures they are verifying with their currently active one.
+    if (!user?.wallet?.address) {
+      setErrorMessage('Please connect your Web3 wallet first.');
+      setStatus('error');
+      return;
+    }
+
     setStatus('loading');
     setErrorMessage(null);
     
     try {
+      const token = await getAccessToken();
+      
+      if (!token) {
+        setErrorMessage('Authentication token missing. Please log in again.');
+        setStatus('error');
+        return;
+      }
+
       const res = await fetch('/api/kyc/verify-bvn', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bvn })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ bvn }) 
       });
 
       const data = await res.json();
@@ -34,8 +58,9 @@ export default function KYCVerification() {
         setStatus('success');
         setVerifiedName(`${data.profile.firstName} ${data.profile.lastName}`);
         
-        // Triggers JWT re-sync to instantly unmount the KYCGate modal
-        await update({ isKycVerified: true });
+        if (onSuccess) {
+          setTimeout(() => onSuccess(), 1500);
+        }
       } else {
         setStatus('error');
         setErrorMessage(data.error || 'Verification failed. Please try again.');
