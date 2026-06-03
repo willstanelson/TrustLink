@@ -47,12 +47,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid or expired authentication session.' }, { status: 401 });
     }
 
-    // Extract the wallet securely without a secondary network call to Privy
-    // NOTE: Depending on your Privy configuration, you may need to rely on custom claims 
-    // or parse the DID if `linkedAccounts` isn't exposed directly in the JWT payload.
-    const trustedWallet = verifiedClaims.linkedAccounts?.find(
-      (a: any) => a.type === 'wallet'
-    )?.address;
+  // Fetch the full user object securely from Privy using the verified ID
+    const privyUser = await privy.getUser(verifiedClaims.userId);
+    
+    // Extract the active wallet address
+    const trustedWallet = privyUser.wallet?.address;
 
     if (!trustedWallet) {
       return NextResponse.json({ error: 'A connected wallet is required for KYC.' }, { status: 400 });
