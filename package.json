@@ -16,6 +16,8 @@
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.90.1",
     "@tanstack/react-query": "^5.90.21",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "@xmtp/browser-sdk": "^6.1.2",
     "@xmtp/content-type-reaction": "^2.0.2",
     "@xmtp/content-type-remote-attachment": "^2.0.4",
