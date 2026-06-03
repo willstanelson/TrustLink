@@ -31,10 +31,10 @@ export async function POST(request: Request) {
 
     try {
       await privy.verifyWebhook(body, {
-        svixId: svix_id,
-        svixTimestamp: svix_timestamp,
-        svixSignature: svix_signature,
-      }, PRIVY_WEBHOOK_SECRET);
+        'svix-id': svix_id,
+        'svix-timestamp': svix_timestamp,
+        'svix-signature': svix_signature,
+      } as any, PRIVY_WEBHOOK_SECRET);
     } catch (error) {
       console.error('Webhook signature verification failed');
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
