@@ -5,8 +5,6 @@ import { Redis } from '@upstash/redis';
 import { createClient } from '@supabase/supabase-js';
 import { PrivyClient } from '@privy-io/server-auth';
 
-type LinkedAccount = { type: string; address?: string };
-
 const bvnSchema = z.object({
   bvn: z.string().regex(/^\d{11}$/, 'BVN must be exactly 11 digits')
 });
@@ -51,9 +49,8 @@ export async function POST(request: Request) {
     }
 
     // Strongly typed linked accounts
-    const trustedWallet = verifiedClaims.linkedAccounts?.find(
-      (a: LinkedAccount) => a.type === 'wallet'
-    )?.address;
+    const privyUser = await privy.getUser(verifiedClaims.userId);
+    const trustedWallet = privyUser.wallet?.address;
 
     if (!trustedWallet) {
       return NextResponse.json({ error: 'A connected wallet is required for KYC.' }, { status: 400 });
