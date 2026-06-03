@@ -22,9 +22,6 @@ export default function KYCVerification({ onSuccess }: KYCVerificationProps) {
       return;
     }
 
-    // NOTE: user?.wallet?.address checks the default/active wallet. 
-    // If a user has multiple wallets linked in Privy (e.g., embedded + external),
-    // this ensures they are verifying with their currently active one.
     if (!user?.wallet?.address) {
       setErrorMessage('Please connect your Web3 wallet first.');
       setStatus('error');
@@ -59,7 +56,7 @@ export default function KYCVerification({ onSuccess }: KYCVerificationProps) {
         setVerifiedName(`${data.profile.firstName} ${data.profile.lastName}`);
         
         if (onSuccess) {
-          setTimeout(() => onSuccess(), 1500);
+          setTimeout(() => onSuccess(), 1500); // Allow success UI to display before closing
         }
       } else {
         setStatus('error');

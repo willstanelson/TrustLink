@@ -5,59 +5,61 @@ import { Redis } from '@upstash/redis';
 import { createClient } from '@supabase/supabase-js';
 import { PrivyClient } from '@privy-io/server-auth';
 
-// ─── MODULE SCOPE SINGLETONS ───
-// These survive warm serverless invocations, saving memory and init time.
-const privy = new PrivyClient(
-  process.env.PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
-);
+type LinkedAccount = { type: string; address?: string };
 
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(5, '1 m'),
-  analytics: true,
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-// ─── SCHEMAS ───
 const bvnSchema = z.object({
   bvn: z.string().regex(/^\d{11}$/, 'BVN must be exactly 11 digits')
 });
 
 export async function POST(request: Request) {
   try {
-    // 1. PRIVY AUTH GUARD
+    const { 
+      PRIVY_APP_ID, 
+      PRIVY_APP_SECRET, 
+      SUPABASE_URL, 
+      SUPABASE_SERVICE_ROLE_KEY,
+      DOJAH_APP_ID,
+      DOJAH_SECRET_KEY
+    } = process.env;
+
+    if (!PRIVY_APP_ID || !PRIVY_APP_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !DOJAH_APP_ID || !DOJAH_SECRET_KEY) {
+      console.error('CRITICAL: Server misconfiguration. Missing ENV vars.');
+      return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+    }
+
+    // 1. Inline Initialization (Eliminates concurrent lazy-init race conditions)
+    const privy = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const ratelimit = new Ratelimit({ 
+      redis: Redis.fromEnv(), 
+      limiter: Ratelimit.slidingWindow(5, '1 m'), 
+      analytics: true 
+    });
+
+    // 2. Privy Auth Guard
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
     
-    if (!token) {
-      return NextResponse.json({ error: 'Missing authentication token.' }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ error: 'Missing authentication token.' }, { status: 401 });
 
     let verifiedClaims;
     try {
       verifiedClaims = await privy.verifyAuthToken(token);
     } catch (error) {
-      // Log the actual error to prevent debugging nightmares on network failures
       console.error('Privy token verification failed:', error);
       return NextResponse.json({ error: 'Invalid or expired authentication session.' }, { status: 401 });
     }
 
-  // Fetch the full user object securely from Privy using the verified ID
-    const privyUser = await privy.getUser(verifiedClaims.userId);
-    
-    // Extract the active wallet address
-    const trustedWallet = privyUser.wallet?.address;
+    // Strongly typed linked accounts
+    const trustedWallet = verifiedClaims.linkedAccounts?.find(
+      (a: LinkedAccount) => a.type === 'wallet'
+    )?.address;
 
     if (!trustedWallet) {
       return NextResponse.json({ error: 'A connected wallet is required for KYC.' }, { status: 400 });
     }
 
-    // 2. INPUT VALIDATION
+    // 3. Input Validation
     const body = await request.json();
     const parsed = bvnSchema.safeParse(body);
     if (!parsed.success) {
@@ -65,15 +67,15 @@ export async function POST(request: Request) {
     }
     const { bvn } = parsed.data;
 
-    // 3. RATE LIMITING (By trusted Privy DID)
+    // 4. Rate Limiting (by Privy ID)
     const { success: rateLimitSuccess } = await ratelimit.limit(verifiedClaims.userId);
     if (!rateLimitSuccess) {
       return NextResponse.json({ error: 'Too many requests. Please wait a minute.' }, { status: 429 });
     }
 
-    // 4. SUPABASE PRE-FLIGHT
+    // 5. Supabase Pre-Flight Check
     const { data: existingProfile } = await supabase
-      .from('profile')
+      .from('profiles')
       .select('kyc_completed')
       .eq('wallet_address', trustedWallet) 
       .single();
@@ -82,15 +84,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'This wallet is already verified.' }, { status: 409 });
     }
 
-    // 5. DOJAH FETCH
+    // 6. Dojah Fetch
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const { DOJAH_APP_ID, DOJAH_SECRET_KEY } = process.env;
-    const response = await fetch(`https://sandbox.dojah.io/api/v1/kyc/bvn/full?bvn=${bvn}`, {
+    // Hardcoded URL swapped for environment variable fallback
+    const DOJAH_BASE = process.env.DOJAH_BASE_URL ?? 'https://sandbox.dojah.io';
+    const response = await fetch(`${DOJAH_BASE}/api/v1/kyc/bvn/full?bvn=${bvn}`, {
       headers: {
-        Authorization: DOJAH_SECRET_KEY!,
-        AppId: DOJAH_APP_ID!,
+        Authorization: DOJAH_SECRET_KEY,
+        AppId: DOJAH_APP_ID,
         Accept: 'application/json',
       },
       signal: controller.signal,
@@ -98,18 +101,16 @@ export async function POST(request: Request) {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      console.error('Dojah error', err);
+      console.error('Dojah error:', await response.json().catch(() => ({})));
       return NextResponse.json({ error: 'Verification failed with identity provider.' }, { status: 502 });
     }
 
     const data = await response.json();
     const { firstName, lastName } = data.entity;
 
-    // 6. SUPABASE UPDATE
-    // Omitted `updated_at` to let the DB handle it natively via column defaults
+    // 7. Supabase Update
     const { error: dbError } = await supabase
-      .from('profile')
+      .from('profiles')
       .update({ kyc_completed: true })
       .eq('wallet_address', trustedWallet);
 
