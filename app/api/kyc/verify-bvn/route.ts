@@ -48,12 +48,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid or expired authentication session.' }, { status: 401 });
     }
 
-    const privyUser = await privy.getUser(verifiedClaims.userId);
-    const trustedWallet = privyUser.wallet?.address;
-
-    if (!trustedWallet) {
-      return NextResponse.json({ error: 'A connected wallet is required for KYC.' }, { status: 400 });
+    let privyUser;
+    try {
+      privyUser = await privy.getUser(verifiedClaims.userId);
+    } catch (error) {
+      console.error('Failed to fetch Privy user:', error);
+      return NextResponse.json(
+        { error: 'Failed to retrieve user profile.' },
+        { status: 503 }
+      );
     }
+    const trustedWallet = privyUser.wallet?.address;
 
     // 3. Input Validation
     const body = await request.json();
