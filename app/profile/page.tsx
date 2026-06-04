@@ -165,10 +165,7 @@ export default function ProfilePage() {
   // Safely extract the email from any connected OAuth provider
   const email = 
     user.email?.address || 
-    user.google?.email || 
-    user.discord?.email || 
-    user.apple?.email || 
-    user.twitter?.email || 
+    user.google?.email ||
     'No email linked';
 
   return (
