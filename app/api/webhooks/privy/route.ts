@@ -27,16 +27,17 @@ export async function POST(request: Request) {
     const svix_timestamp = request.headers.get('svix-timestamp') ?? '';
     const svix_signature = request.headers.get('svix-signature') ?? '';
     
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    
     const body = await request.text(); 
 
     try {
-      await privy.verifyWebhook(body, {
-        'svix-id': svix_id,
-        'svix-timestamp': svix_timestamp,
-        'svix-signature': svix_signature,
-      } as any, PRIVY_WEBHOOK_SECRET);
+      await privy.verifyWebhook(body, headers as any, PRIVY_WEBHOOK_SECRET);
     } catch (error) {
-      console.error('Webhook signature verification failed');
+      console.error('Webhook signature verification failed:', error);
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
     }
 

@@ -162,7 +162,14 @@ export default function ProfilePage() {
 
   if (!user) return <div className="p-8 text-white">Loading identity...</div>;
 
-  const email = user.email?.address || 'No email linked';
+  // Safely extract the email from any connected OAuth provider
+  const email = 
+    user.email?.address || 
+    user.google?.email || 
+    user.discord?.email || 
+    user.apple?.email || 
+    user.twitter?.email || 
+    'No email linked';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] pt-12 pb-12 px-4 sm:px-6 text-white font-sans">
