@@ -1,3 +1,25 @@
+'use client';
+import React, { useState, useEffect, useRef } from 'react';
+import MasterTopbar from '@/components/dashboard/MasterTopbar';
+import DynamicSidebar from '@/components/dashboard/DynamicSidebar';
+import XpressDashboard from '@/components/xpress/XpressDashboard';
+import { useAuth } from '@/context/AuthContext'; 
+
+// Error Boundary wrapper to prevent full page crashes
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return <div className="p-8 text-red-400 border border-red-500/20 bg-red-500/10 rounded-xl">Failed to load module. Please refresh the page.</div>;
+    }
+    return this.props.children;
+  }
+}
+
 export default function AppShell() {
   const [appMode, setAppMode] = useState<'xpress' | 'market'>('xpress');
   const [activeTab, setActiveTab] = useState('xpress-home');
@@ -70,4 +92,4 @@ export default function AppShell() {
       </div>
     </div>
   );
-}git
+}
