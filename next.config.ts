@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  turbopack: {}, // <-- Add this line to silence the error
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
