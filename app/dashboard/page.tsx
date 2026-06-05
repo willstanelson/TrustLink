@@ -1,40 +1,40 @@
-'use client';
-import React, { useState, useEffect, useRef } from 'react';
-import MasterTopbar from '@/components/dashboard/MasterTopbar';
-import DynamicSidebar from '@/components/dashboard/DynamicSidebar';
-import XpressDashboard from '@/components/xpress/XpressDashboard';
-import { useAuth } from '@/context/AuthContext'; 
-
-// Error Boundary wrapper to prevent full page crashes
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
-  constructor(props: {children: React.ReactNode}) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  render() {
-    if (this.state.hasError) {
-      return <div className="p-8 text-red-400 border border-red-500/20 bg-red-500/10 rounded-xl">Failed to load module. Please refresh the page.</div>;
-    }
-    return this.props.children;
-  }
-}
-
 export default function AppShell() {
   const [appMode, setAppMode] = useState<'xpress' | 'market'>('xpress');
   const [activeTab, setActiveTab] = useState('xpress-home');
   const previousMode = useRef(appMode);
   
-  // Real Database Hooks
-  const { profileData } = useAuth();
+  // 1. Properly typed local state for the profile
+  const [profileData, setProfileData] = useState<{ tier_2_verified: boolean; unread_notifications: number } | null>(null);
+
+  // 2. Destructure ONLY what AuthContext actually provides
+  const { supabase, walletAddress, sessionReady } = useAuth();
+
+  // 3. Fetch the profile data when the session is ready
+  useEffect(() => {
+    async function fetchProfile() {
+      if (!sessionReady || !walletAddress) return;
+      
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('tier_2_verified, unread_notifications')
+        .eq('wallet_address', walletAddress)
+        .single();
+        
+      if (!error && data) {
+        setProfileData(data);
+      }
+    }
+    
+    fetchProfile();
+  }, [sessionReady, walletAddress, supabase]);
+
+  // 4. Safely derive UI states
   const isVerifiedSeller = profileData?.tier_2_verified || false; 
-  // Strict TS fix using nullish coalescing
   const hasGlobalAlert = (profileData?.unread_notifications ?? 0) > 0; 
 
-  // Fixed useEffect: Dependency array trimmed to exactly what triggers the lifecycle
+  // Fixed useEffect for Tab Switching
   useEffect(() => {
     if (previousMode.current !== appMode) {
-      // Using a functional state update prevents needing activeTab in the dependency array
       setActiveTab((prev) => {
         if (appMode === 'xpress' && !prev.startsWith('xpress')) return 'xpress-home';
         if (appMode === 'market' && !prev.startsWith('market') && !prev.startsWith('seller')) return 'market-discover';
@@ -70,4 +70,4 @@ export default function AppShell() {
       </div>
     </div>
   );
-}
+}git
