@@ -123,26 +123,22 @@ export default function AppShell() {
         appMode={appMode}
         setAppMode={setAppMode}
         hasGlobalAlert={hasGlobalAlert}
-        xpress={
-          appMode === 'xpress'
-            ? {
-                searchQuery: xpressSearchQuery,
-                onSearchChange: setXpressSearchQuery,
-                onSearchSubmit: (e) => xpressSearchSubmitRef.current(e),
-                networkAlerts: xpressNetworkAlerts,
-                totalActionableOrders: xpressTotalActionable,
-                isUnsupportedNetwork: xpressIsUnsupportedNetwork,
-                activeChain: xpressActiveChain,
-                formattedBalance: xpressFormattedBalance,
-                activeEmail: xpressActiveEmail,
-                userAddress: xpressUserAddress,
-                isNetworkListOpen: xpressIsNetworkListOpen,
-                setIsNetworkListOpen: setXpressIsNetworkListOpen,
-                onOpenWallet: () => setXpressWalletModalOpen(true),
-                onLogout: () => xpressLogoutRef.current(),
-              }
-            : undefined
-        }
+        xpress={{
+          searchQuery: xpressSearchQuery,
+          onSearchChange: setXpressSearchQuery,
+          onSearchSubmit: (e) => xpressSearchSubmitRef.current(e),
+          networkAlerts: xpressNetworkAlerts,
+          totalActionableOrders: xpressTotalActionable,
+          isUnsupportedNetwork: xpressIsUnsupportedNetwork,
+          activeChain: xpressActiveChain,
+          formattedBalance: xpressFormattedBalance,
+          activeEmail: xpressActiveEmail,
+          userAddress: xpressUserAddress,
+          isNetworkListOpen: xpressIsNetworkListOpen,
+          setIsNetworkListOpen: setXpressIsNetworkListOpen,
+          onOpenWallet: () => setXpressWalletModalOpen(true),
+          onLogout: () => xpressLogoutRef.current(),
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
