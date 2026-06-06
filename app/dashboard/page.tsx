@@ -33,9 +33,27 @@ export default function AppShell() {
   const [activeTab, setActiveTab] = useState('xpress-home');
   const previousMode = useRef(appMode);
 
-  const { profileData } = useAuth();
-  const isVerifiedSeller = profileData?.tier_2_verified || false;
-  const hasGlobalAlert = (profileData?.unread_notifications ?? 0) > 0;
+  // AuthContext exposes walletAddress/emailAddress directly — no profileData field.
+  // Fetching seller status and notification count from Supabase directly.
+  const { sessionReady, supabase, walletAddress } = useAuth();
+  const [isVerifiedSeller, setIsVerifiedSeller] = useState(false);
+  const [hasGlobalAlert, setHasGlobalAlert] = useState(false);
+
+  useEffect(() => {
+    if (!sessionReady || !walletAddress) return;
+    let cancelled = false;
+    supabase
+      .from('profiles')
+      .select('tier_2_verified, unread_notifications')
+      .ilike('wallet_address', walletAddress)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setIsVerifiedSeller(data?.tier_2_verified ?? false);
+        setHasGlobalAlert((data?.unread_notifications ?? 0) > 0);
+      });
+    return () => { cancelled = true; };
+  }, [sessionReady, walletAddress, supabase]);
 
   // ── Xpress topbar state (lifted here so MasterTopbar can render them) ──────
   const [xpressSearchQuery, setXpressSearchQuery] = useState('');
