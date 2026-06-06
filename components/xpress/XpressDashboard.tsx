@@ -118,6 +118,7 @@ interface TopbarSync {
   isNetworkListOpen: boolean;
   walletModalOpen: boolean;
   setWalletModalOpen: (v: boolean) => void;
+  // Search is owned by AppShell — kept for interface compatibility but unused
   bindSearchSubmit: (fn: (e: React.FormEvent) => void) => void;
   bindLogout: (fn: () => void) => void;
 }

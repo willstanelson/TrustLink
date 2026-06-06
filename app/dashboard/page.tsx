@@ -1,10 +1,26 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import MasterTopbar from '@/components/dashboard/MasterTopbar';
 import DynamicSidebar from '@/components/dashboard/DynamicSidebar';
 import XpressDashboard from '@/components/xpress/XpressDashboard';
 import { useAuth } from '@/context/AuthContext';
 
+// ─── Notification type ────────────────────────────────────────────────────────
+export interface AppNotification {
+  id: string | number;
+  type: 'order' | 'system';
+  title: string;
+  body: string;
+  read: boolean;
+  created_at: string;
+  // order-specific
+  trade_type?: 'CRYPTO' | 'FIAT' | 'GIFT_CARD';
+  order_status?: string;
+  mode?: 'xpress' | 'market';
+}
+
+// ─── Error boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean }
@@ -13,9 +29,7 @@ class ErrorBoundary extends React.Component<
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
+  static getDerivedStateFromError() { return { hasError: true }; }
   render() {
     if (this.state.hasError) {
       return (
@@ -28,35 +42,138 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell() {
+  const router = useRouter();
   const [appMode, setAppMode] = useState<'xpress' | 'market'>('xpress');
   const [activeTab, setActiveTab] = useState('xpress-home');
   const previousMode = useRef(appMode);
 
-  // AuthContext exposes walletAddress/emailAddress directly — no profileData field.
-  // Fetching seller status and notification count from Supabase directly.
-  const { sessionReady, supabase, walletAddress } = useAuth();
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  const { sessionReady, supabase, walletAddress, emailAddress } = useAuth();
   const [isVerifiedSeller, setIsVerifiedSeller] = useState(false);
-  const [hasGlobalAlert, setHasGlobalAlert] = useState(false);
 
   useEffect(() => {
     if (!sessionReady || !walletAddress) return;
     let cancelled = false;
     supabase
       .from('profiles')
-      .select('tier_2_verified, unread_notifications')
+      .select('tier_2_verified')
       .ilike('wallet_address', walletAddress)
       .single()
       .then(({ data }) => {
-        if (cancelled) return;
-        setIsVerifiedSeller(data?.tier_2_verified ?? false);
-        setHasGlobalAlert((data?.unread_notifications ?? 0) > 0);
+        if (!cancelled) setIsVerifiedSeller(data?.tier_2_verified ?? false);
       });
     return () => { cancelled = true; };
   }, [sessionReady, walletAddress, supabase]);
 
-  // ── Xpress topbar state (lifted here so MasterTopbar can render them) ──────
-  const [xpressSearchQuery, setXpressSearchQuery] = useState('');
+  // ── Global notifications ────────────────────────────────────────────────────
+  // Fetches from two sources:
+  //   1. escrow_orders  — new orders, status changes (crypto + fiat + gift card)
+  //   2. notifications  — system messages pushed by devs
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+
+  const hasGlobalAlert = notifications.some((n) => !n.read);
+
+  const fetchNotifications = useCallback(async () => {
+    if (!sessionReady) return;
+
+    // 1. Order notifications — escrows where user is buyer or seller and
+    //    status has changed recently (last 48h), across all trade types.
+    const identifier = walletAddress?.toLowerCase();
+    const email = emailAddress?.toLowerCase();
+    if (!identifier && !email) return;
+
+    const { data: orders } = await supabase
+      .from('escrow_orders')
+      .select('id, status, trade_type, created_at, buyer_email, seller_email, buyer_wallet_address, seller_address, amount, gc_brand')
+      .or(
+        [
+          identifier ? `buyer_wallet_address.ilike.${identifier}` : null,
+          identifier ? `seller_address.ilike.${identifier}` : null,
+          email ? `buyer_email.ilike.${email}` : null,
+          email ? `seller_email.ilike.${email}` : null,
+        ]
+          .filter(Boolean)
+          .join(',')
+      )
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    // 2. System notifications — a simple `notifications` table where devs
+    //    insert rows. Falls back gracefully if the table doesn't exist yet.
+    const { data: sysNotifs } = await supabase
+      .from('notifications')
+      .select('id, title, body, read, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const orderNotifs: AppNotification[] = (orders ?? []).map((o: any) => {
+      const tradeLabel =
+        o.trade_type === 'GIFT_CARD'
+          ? `${o.gc_brand ?? 'Gift Card'} GC`
+          : o.trade_type === 'FIAT'
+          ? 'Bank Transfer'
+          : 'Crypto';
+      const statusLabel = (o.status ?? 'update').toUpperCase().replace(/_/g, ' ');
+      return {
+        id: `order-${o.id}`,
+        type: 'order',
+        title: `${tradeLabel} order ${statusLabel}`,
+        body: `Amount: ${o.amount ?? '—'} · ${new Date(o.created_at).toLocaleDateString()}`,
+        read: ['completed', 'success'].includes(o.status?.toLowerCase() ?? ''),
+        created_at: o.created_at,
+        trade_type: o.trade_type,
+        order_status: o.status,
+      };
+    });
+
+    const systemNotifs: AppNotification[] = (sysNotifs ?? []).map((n: any) => ({
+      id: `sys-${n.id}`,
+      type: 'system',
+      title: n.title ?? 'TrustLink Update',
+      body: n.body ?? '',
+      read: n.read ?? false,
+      created_at: n.created_at,
+    }));
+
+    // Merge and sort newest first
+    const merged = [...orderNotifs, ...systemNotifs].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    setNotifications(merged);
+  }, [sessionReady, walletAddress, emailAddress, supabase]);
+
+  // Fetch on mount and poll every 30s
+  useEffect(() => {
+    fetchNotifications();
+    const id = setInterval(fetchNotifications, 30_000);
+    return () => clearInterval(id);
+  }, [fetchNotifications]);
+
+  const markAllRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    // Persist read state for system notifications
+    if (sessionReady) {
+      supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('read', false)
+        .then(() => {});
+    }
+  }, [sessionReady, supabase]);
+
+  // ── Search (owned here — router lives here, not inside XpressDashboard) ─────
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearchSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 100).trim();
+    if (q) router.push(`/user/${encodeURIComponent(q)}`);
+  }, [searchQuery, router]);
+
+  // ── Xpress topbar state (wallet/network — still owned by XpressDashboard) ───
   const [xpressNetworkAlerts, setXpressNetworkAlerts] = useState<Record<number, number>>({});
   const [xpressTotalActionable, setXpressTotalActionable] = useState(0);
   const [xpressIsUnsupportedNetwork, setXpressIsUnsupportedNetwork] = useState(false);
@@ -66,9 +183,9 @@ export default function AppShell() {
   const [xpressUserAddress, setXpressUserAddress] = useState<string | undefined>(undefined);
   const [xpressIsNetworkListOpen, setXpressIsNetworkListOpen] = useState(false);
   const [xpressWalletModalOpen, setXpressWalletModalOpen] = useState(false);
-  const xpressSearchSubmitRef = useRef<(e: React.FormEvent) => void>(() => {});
   const xpressLogoutRef = useRef<() => void>(() => {});
 
+  // ── Mode tab sync ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (previousMode.current !== appMode) {
       if (appMode === 'xpress' && !activeTab.startsWith('xpress')) {
@@ -84,13 +201,12 @@ export default function AppShell() {
     }
   }, [appMode]);
 
+  // ── Content router ──────────────────────────────────────────────────────────
   const renderContent = () => {
     switch (activeTab) {
       case 'xpress-home':
         return (
           <XpressDashboard
-            // Topbar sync callbacks — XpressDashboard calls these
-            // to keep the topbar controls in sync with its internal state
             onTopbarSync={{
               setNetworkAlerts: setXpressNetworkAlerts,
               setTotalActionable: setXpressTotalActionable,
@@ -103,7 +219,8 @@ export default function AppShell() {
               isNetworkListOpen: xpressIsNetworkListOpen,
               walletModalOpen: xpressWalletModalOpen,
               setWalletModalOpen: setXpressWalletModalOpen,
-              bindSearchSubmit: (fn) => { xpressSearchSubmitRef.current = fn; },
+              // Search is now handled in AppShell — no bind needed
+              bindSearchSubmit: () => {},
               bindLogout: (fn) => { xpressLogoutRef.current = fn; },
             }}
           />
@@ -117,16 +234,24 @@ export default function AppShell() {
     }
   };
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0b0f19] font-sans overflow-hidden flex flex-col">
       <MasterTopbar
         appMode={appMode}
         setAppMode={setAppMode}
+        // Notifications
+        notifications={notifications}
+        notifPanelOpen={notifPanelOpen}
+        setNotifPanelOpen={setNotifPanelOpen}
+        onMarkAllRead={markAllRead}
         hasGlobalAlert={hasGlobalAlert}
+        // Search (owned here)
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onSearchSubmit={handleSearchSubmit}
+        // Xpress wallet/network controls
         xpress={{
-          searchQuery: xpressSearchQuery,
-          onSearchChange: setXpressSearchQuery,
-          onSearchSubmit: (e) => xpressSearchSubmitRef.current(e),
           networkAlerts: xpressNetworkAlerts,
           totalActionableOrders: xpressTotalActionable,
           isUnsupportedNetwork: xpressIsUnsupportedNetwork,
