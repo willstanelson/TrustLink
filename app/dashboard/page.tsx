@@ -14,7 +14,6 @@ export interface AppNotification {
   body: string;
   read: boolean;
   created_at: string;
-  // order-specific
   trade_type?: 'CRYPTO' | 'FIAT' | 'GIFT_CARD';
   order_status?: string;
   mode?: 'xpress' | 'market';
@@ -67,21 +66,50 @@ export default function AppShell() {
     return () => { cancelled = true; };
   }, [sessionReady, walletAddress, supabase]);
 
-  // ── Global notifications ────────────────────────────────────────────────────
-  // Fetches from two sources:
-  //   1. escrow_orders  — new orders, status changes (crypto + fiat + gift card)
-  //   2. notifications  — system messages pushed by devs
+  // ── Sidebar State & Persistence ─────────────────────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('tl_sidebar_state');
+    if (stored !== null) {
+      setSidebarOpen(stored === 'true');
+    }
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => {
+      const newState = !prev;
+      localStorage.setItem('tl_sidebar_state', String(newState));
+      return newState;
+    });
+  }, []);
+
+  // ── Global notifications & Persisted State ──────────────────────────────────
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const manuallyReadIds = useRef<Set<string | number>>(new Set());
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Initialize the set from localStorage safely on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('tl_read_notif_ids');
+      if (stored) {
+        const parsed: (string | number)[] = JSON.parse(stored);
+        manuallyReadIds.current = new Set(parsed);
+      }
+    } catch (e) {
+      console.error("Failed to parse stored notifications");
+      manuallyReadIds.current = new Set();
+    }
+    setIsHydrated(true);
+  }, []);
 
   const hasGlobalAlert = notifications.some((n) => !n.read);
 
   const fetchNotifications = useCallback(async () => {
-    if (!sessionReady) return;
+    if (!sessionReady || !isHydrated) return;
 
-    // 1. Order notifications — escrows where user is buyer or seller and
-    //    status has changed recently (last 48h), across all trade types.
     const identifier = walletAddress?.toLowerCase();
     const email = emailAddress?.toLowerCase();
     if (!identifier && !email) return;
@@ -102,39 +130,38 @@ export default function AppShell() {
       .order('created_at', { ascending: false })
       .limit(30);
 
-    // 2. System notifications — a simple `notifications` table where devs
-    //    insert rows. Falls back gracefully if the table doesn't exist yet.
     const { data: sysNotifs } = await supabase
       .from('notifications')
       .select('id, title, body, read, created_at')
       .order('created_at', { ascending: false })
       .limit(10);
 
-  const orderNotifs: AppNotification[] = (orders ?? []).map((o: any) => {
-    const id = `order-${o.id}`;
-    const isStatusRead = ['completed', 'success'].includes(o.status?.toLowerCase() ?? '');
-    
-    // Check our local memory cache to see if the user already dismissed this
-    const wasManuallyRead = manuallyReadIds.current.has(id);
+    const orderNotifs: AppNotification[] = (orders ?? []).map((o: any) => {
+      const id = `order-${o.id}`;
+      const isStatusRead = ['completed', 'success'].includes(o.status?.toLowerCase() ?? '');
+      
+      const wasManuallyRead = manuallyReadIds.current.has(id);
 
-    let title = 'Order Update';
-    let body = `Your order #${o.id} status is ${o.status}.`;
-    
-    // ... (keep your existing title/body logic here) ...
+      const tradeLabel =
+        o.trade_type === 'GIFT_CARD'
+          ? `${o.gc_brand ?? 'Gift Card'} GC`
+          : o.trade_type === 'FIAT'
+          ? 'Bank Transfer'
+          : 'Crypto';
+      const statusLabel = (o.status ?? 'update').toUpperCase().replace(/_/g, ' ');
 
-    return {
-      id,
-      type: 'order',
-      title,
-      body,
-      // The key fix: It is read if it's completed OR if the user manually dismissed it
-      read: wasManuallyRead || isStatusRead, 
-      created_at: o.updated_at || o.created_at,
-      trade_type: o.trade_type,
-      order_status: o.status,
-      mode: 'xpress'
-    };
-  });
+      return {
+        id,
+        type: 'order',
+        title: `${tradeLabel} order ${statusLabel}`,
+        body: `Amount: ${o.amount ?? '—'} · ${new Date(o.created_at).toLocaleDateString()}`,
+        read: isStatusRead || wasManuallyRead, 
+        created_at: o.updated_at || o.created_at,
+        trade_type: o.trade_type,
+        order_status: o.status,
+        mode: 'xpress'
+      };
+    });
 
     const systemNotifs: AppNotification[] = (sysNotifs ?? []).map((n: any) => ({
       id: `sys-${n.id}`,
@@ -145,12 +172,21 @@ export default function AppShell() {
       created_at: n.created_at,
     }));
 
-    // Merge and sort newest first
     const merged = [...orderNotifs, ...systemNotifs].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
+    
+    // Prune stale IDs so localStorage doesn't grow unbounded
+    const currentIds = new Set(merged.map((n) => n.id));
+    manuallyReadIds.current = new Set(
+      [...manuallyReadIds.current].filter((id) => currentIds.has(id))
+    );
+    try {
+      localStorage.setItem('tl_read_notif_ids', JSON.stringify([...manuallyReadIds.current]));
+    } catch {}
+
     setNotifications(merged);
-  }, [sessionReady, walletAddress, emailAddress, supabase]);
+  }, [sessionReady, walletAddress, emailAddress, supabase, isHydrated]);
 
   // Fetch on mount and poll every 30s
   useEffect(() => {
@@ -161,9 +197,19 @@ export default function AppShell() {
 
   const markAllRead = useCallback(() => {
     setNotifications((prev) => {
-      prev.forEach((n) => manuallyReadIds.current.add(n.id));
-      return prev.map((n) => ({ ...n, read: true }));
+      const updated = prev.map((n) => ({ ...n, read: true }));
+      
+      updated.forEach((n) => manuallyReadIds.current.add(n.id));
+      try {
+        localStorage.setItem(
+          'tl_read_notif_ids',
+          JSON.stringify([...manuallyReadIds.current])
+        );
+      } catch {}
+      
+      return updated;
     });
+
     if (sessionReady) {
       supabase
         .from('notifications')
@@ -173,7 +219,7 @@ export default function AppShell() {
     }
   }, [sessionReady, supabase]);
 
-  // ── Search (owned here — router lives here, not inside XpressDashboard) ─────
+  // ── Search (owned here) ─────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleSearchSubmit = useCallback((e: React.FormEvent) => {
@@ -182,7 +228,7 @@ export default function AppShell() {
     if (q) router.push(`/user/${encodeURIComponent(q)}`);
   }, [searchQuery, router]);
 
-  // ── Xpress topbar state (wallet/network — still owned by XpressDashboard) ───
+  // ── Xpress topbar state ─────────────────────────────────────────────────────
   const [xpressNetworkAlerts, setXpressNetworkAlerts] = useState<Record<number, number>>({});
   const [xpressTotalActionable, setXpressTotalActionable] = useState(0);
   const [xpressIsUnsupportedNetwork, setXpressIsUnsupportedNetwork] = useState(false);
@@ -208,7 +254,7 @@ export default function AppShell() {
       }
       previousMode.current = appMode;
     }
-  }, [appMode]);
+  }, [appMode, activeTab]);
 
   // ── Content router ──────────────────────────────────────────────────────────
   const renderContent = () => {
@@ -228,9 +274,8 @@ export default function AppShell() {
               isNetworkListOpen: xpressIsNetworkListOpen,
               walletModalOpen: xpressWalletModalOpen,
               setWalletModalOpen: setXpressWalletModalOpen,
-              // Search is now handled in AppShell — no bind needed
               bindSearchSubmit: () => {},
-              bindLogout: (fn) => { xpressLogoutRef.current = fn; },
+              bindLogout: (fn: () => void) => { xpressLogoutRef.current = fn; },
             }}
           />
         );
@@ -245,21 +290,23 @@ export default function AppShell() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0b0f19] font-sans overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-[#0b0f19] font-sans flex flex-col">
       <MasterTopbar
         appMode={appMode}
         setAppMode={setAppMode}
+        sidebarOpen={sidebarOpen}
+        toggleSidebar={toggleSidebar}
         // Notifications
         notifications={notifications}
         notifPanelOpen={notifPanelOpen}
         setNotifPanelOpen={setNotifPanelOpen}
         onMarkAllRead={markAllRead}
         hasGlobalAlert={hasGlobalAlert}
-        // Search (owned here)
+        // Search
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
-        // Xpress wallet/network controls
+        // Xpress
         xpress={{
           networkAlerts: xpressNetworkAlerts,
           totalActionableOrders: xpressTotalActionable,
@@ -275,15 +322,18 @@ export default function AppShell() {
         }}
       />
 
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 relative pt-[76px]">
         <DynamicSidebar
           appMode={appMode}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           isVerifiedSeller={isVerifiedSeller}
+          isOpen={sidebarOpen}
         />
 
-        <main className="flex-1 md:ml-64 overflow-y-auto bg-[#0b0f19]">
+        <main className={`flex-1 transition-all duration-300 ease-in-out ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-16'
+        } bg-[#0b0f19] min-h-[calc(100vh-76px)]`}>
           <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
             <ErrorBoundary>{renderContent()}</ErrorBoundary>
           </div>

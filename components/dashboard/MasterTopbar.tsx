@@ -5,7 +5,6 @@ import { useRef, useEffect } from 'react';
 import { CHAIN_CONFIG } from '@/app/constants';
 import type { AppNotification } from '@/app/dashboard/page';
 
-// ─── Props ────────────────────────────────────────────────────────────────────
 interface XpressControls {
   networkAlerts: Record<number, number>;
   totalActionableOrders: number;
@@ -23,6 +22,9 @@ interface XpressControls {
 interface TopbarProps {
   appMode: 'xpress' | 'market';
   setAppMode: (mode: 'xpress' | 'market') => void;
+  // Sidebar Toggle
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
   // Notifications
   notifications: AppNotification[];
   notifPanelOpen: boolean;
@@ -37,7 +39,6 @@ interface TopbarProps {
   xpress: XpressControls | null;
 }
 
-// ─── Notification icon by type ────────────────────────────────────────────────
 function NotifIcon({ notif }: { notif: AppNotification }) {
   if (notif.type === 'system') {
     return (
@@ -68,10 +69,11 @@ function NotifIcon({ notif }: { notif: AppNotification }) {
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function MasterTopbar({
   appMode,
   setAppMode,
+  sidebarOpen,
+  toggleSidebar,
   notifications,
   notifPanelOpen,
   setNotifPanelOpen,
@@ -119,22 +121,22 @@ export default function MasterTopbar({
 
   return (
     <>
-      <header className="h-16 bg-[#0b0f19] border-b border-[#333333] flex items-center justify-between px-4 sm:px-6 sticky top-0 z-50">
-
-        {/* ── Left: Brand + Toggle ──────────────────────────────────────── */}
-        <div className="flex items-center gap-4">
-          <button className="md:hidden text-[#aaaaaa] hover:text-white" aria-label="Toggle Menu">
+      <header className="fixed w-full h-[76px] bg-[#0b0f19] border-b border-[#333333] flex items-center justify-between px-4 sm:px-6 top-0 z-[150] gap-4">
+        
+        <div className="flex items-center gap-4 min-w-max">
+          {/* Hamburger Menu - Always visible now to toggle the sidebar */}
+          <button onClick={toggleSidebar} className="text-[#aaaaaa] hover:text-white relative z-[110] transition-colors" aria-label="Toggle Menu">
             <Menu className="w-6 h-6" />
           </button>
 
-          <div className="hidden md:flex items-center gap-2 mr-8">
+          <div className="hidden md:flex items-center gap-2 mr-4">
             <div className="w-8 h-8 bg-emerald-500 rounded flex items-center justify-center">
               <span className="text-[#0b0f19] font-black text-xl leading-none tracking-tighter">TL</span>
             </div>
             <span className="text-white font-bold text-xl tracking-tight hidden lg:block">TrustLink</span>
           </div>
 
-          <div className="flex bg-[#1e1f26] border border-[#333333] rounded-lg p-1">
+          <div className="flex bg-[#1e1f26] border border-[#333333] rounded-lg p-1 relative z-[110]">
             <button
               onClick={() => setAppMode('xpress')}
               className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
@@ -154,10 +156,8 @@ export default function MasterTopbar({
           </div>
         </div>
 
-        {/* ── Right: All controls, always visible ──────────────────────── */}
-        <div className="flex items-center gap-3">
-
-          {/* Search — functional, router lives in AppShell */}
+        <div className="flex items-center gap-3 min-w-max">
+          {/* Search */}
           <form onSubmit={onSearchSubmit} className="relative group hidden lg:block" role="search">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-4 w-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" aria-hidden />
@@ -173,11 +173,11 @@ export default function MasterTopbar({
             />
           </form>
 
-          {/* Global notification bell — always visible, all modes, all trade types */}
+          {/* Global notification bell */}
           <button
             ref={bellRef}
             onClick={() => setNotifPanelOpen(!notifPanelOpen)}
-            className="relative p-2 text-[#aaaaaa] hover:text-white transition-colors bg-[#1e1f26] rounded-full border border-[#333333] hover:border-emerald-500/50"
+            className="relative p-2.5 text-[#aaaaaa] hover:text-white transition-colors bg-[#1e1f26] rounded-xl border border-[#333333] hover:border-emerald-500/50"
             aria-label="Notifications"
           >
             <Bell className="w-5 h-5" />
@@ -188,13 +188,13 @@ export default function MasterTopbar({
 
           {/* Network selector */}
           {xpress && (
-            <div className="relative" ref={networkDropdownRef}>
+            <div className="relative hidden sm:block" ref={networkDropdownRef}>
               <button
                 type="button"
                 aria-label="Select network"
                 aria-expanded={xpress.isNetworkListOpen}
                 onClick={() => xpress.setIsNetworkListOpen(!xpress.isNetworkListOpen)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-bold ${
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all text-xs font-bold ${
                   xpress.isUnsupportedNetwork
                     ? 'bg-red-500/10 border-red-500 text-red-400'
                     : 'bg-[#1e1f26] border-[#333333] text-white hover:border-emerald-500/50'
@@ -213,16 +213,15 @@ export default function MasterTopbar({
               </button>
 
               {xpress.isNetworkListOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-[#1e1f26] border border-[#333333] rounded-xl z-[100] overflow-hidden shadow-xl">
-                  {Object.entries(CHAIN_CONFIG).map(([id, config]) => {
+                <div className="absolute right-0 top-full mt-2 w-48 bg-[#1e1f26] border border-[#333333] rounded-xl z-[150] overflow-hidden shadow-xl">                  {Object.entries(CHAIN_CONFIG).map(([id, config]) => {
                     const chainIdNum = Number(id);
                     return (
                       <button
                         key={id}
                         type="button"
-                        onClick={() => { switchChain({ chainId: chainIdNum }); xpress.setIsNetworkListOpen(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-[#0b0f19] transition-colors flex items-center justify-between ${
-                          chainIdNum === chainId ? 'text-emerald-400 bg-[#0b0f19]/50' : 'text-slate-300'
+                        onClick={() => { switchChain?.({ chainId: chainIdNum }); xpress.setIsNetworkListOpen(false); }}
+                        className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-[#2a2b36] transition-colors flex items-center justify-between ${
+                          chainIdNum === chainId ? 'text-emerald-400 bg-[#2a2b36]/50' : 'text-slate-300'
                         }`}
                       >
                         <span>{config.name}</span>
@@ -245,21 +244,21 @@ export default function MasterTopbar({
               type="button"
               aria-label="Open wallet"
               onClick={xpress.onOpenWallet}
-              className="flex items-center gap-2 bg-[#1e1f26] hover:bg-[#2a2d3a] border border-[#333333] hover:border-emerald-500/50 px-4 py-2 rounded-2xl transition-all"
+              className="flex items-center gap-3 bg-[#1e1f26] hover:bg-[#2a2b36] border border-[#333333] hover:border-emerald-500/50 px-4 py-2.5 rounded-xl transition-all shadow-lg"
             >
-              <div className="flex flex-col items-start">
-                <span className="font-mono text-sm font-bold truncate max-w-[120px] text-white">
+              <div className="flex flex-col items-start hidden sm:flex">
+                <span className="font-mono text-sm font-bold truncate max-w-[100px] sm:max-w-[140px] text-white">
                   {xpress.activeEmail
                     ? xpress.activeEmail.split('@')[0]
                     : xpress.userAddress
                     ? `${xpress.userAddress.slice(0, 6)}…${xpress.userAddress.slice(-4)}`
                     : 'Wallet'}
                 </span>
-                <span className="text-[10px] text-emerald-400 font-bold leading-none">
+                <span className="text-[10px] text-emerald-400 font-bold leading-none mt-0.5">
                   {xpress.formattedBalance}
                 </span>
               </div>
-              <Wallet className="w-4 h-4 text-emerald-400" aria-hidden />
+              <Wallet className="w-5 h-5 text-emerald-400" aria-hidden />
             </button>
           )}
 
@@ -269,19 +268,19 @@ export default function MasterTopbar({
               type="button"
               aria-label="Log out"
               onClick={xpress.onLogout}
-              className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2 rounded-xl border border-red-500/20 transition-all"
+              className="hidden sm:block bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2.5 rounded-xl border border-red-500/20 transition-all"
             >
-              <LogOut className="w-4 h-4" aria-hidden />
+              <LogOut className="w-5 h-5" aria-hidden />
             </button>
           )}
         </div>
       </header>
 
-      {/* ── Notification panel ──────────────────────────────────────────────── */}
+      {/* Notification panel */}
       {notifPanelOpen && (
         <div
           ref={notifPanelRef}
-          className="fixed top-[68px] right-4 w-[360px] max-h-[520px] bg-[#0d1320] border border-[#1e2a3a] rounded-2xl shadow-2xl z-[200] flex flex-col overflow-hidden"
+          className="fixed top-[84px] right-4 w-[360px] max-h-[520px] bg-[#0d1320] border border-[#1e2a3a] rounded-2xl shadow-2xl z-[200] flex flex-col overflow-hidden"
           style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
         >
           {/* Header */}
