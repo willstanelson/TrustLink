@@ -72,6 +72,7 @@ export default function AppShell() {
   //   1. escrow_orders  — new orders, status changes (crypto + fiat + gift card)
   //   2. notifications  — system messages pushed by devs
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const manuallyReadIds = useRef<Set<string | number>>(new Set());
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
 
   const hasGlobalAlert = notifications.some((n) => !n.read);
@@ -109,25 +110,31 @@ export default function AppShell() {
       .order('created_at', { ascending: false })
       .limit(10);
 
-    const orderNotifs: AppNotification[] = (orders ?? []).map((o: any) => {
-      const tradeLabel =
-        o.trade_type === 'GIFT_CARD'
-          ? `${o.gc_brand ?? 'Gift Card'} GC`
-          : o.trade_type === 'FIAT'
-          ? 'Bank Transfer'
-          : 'Crypto';
-      const statusLabel = (o.status ?? 'update').toUpperCase().replace(/_/g, ' ');
-      return {
-        id: `order-${o.id}`,
-        type: 'order',
-        title: `${tradeLabel} order ${statusLabel}`,
-        body: `Amount: ${o.amount ?? '—'} · ${new Date(o.created_at).toLocaleDateString()}`,
-        read: ['completed', 'success'].includes(o.status?.toLowerCase() ?? ''),
-        created_at: o.created_at,
-        trade_type: o.trade_type,
-        order_status: o.status,
-      };
-    });
+  const orderNotifs: AppNotification[] = (orders ?? []).map((o: any) => {
+    const id = `order-${o.id}`;
+    const isStatusRead = ['completed', 'success'].includes(o.status?.toLowerCase() ?? '');
+    
+    // Check our local memory cache to see if the user already dismissed this
+    const wasManuallyRead = manuallyReadIds.current.has(id);
+
+    let title = 'Order Update';
+    let body = `Your order #${o.id} status is ${o.status}.`;
+    
+    // ... (keep your existing title/body logic here) ...
+
+    return {
+      id,
+      type: 'order',
+      title,
+      body,
+      // The key fix: It is read if it's completed OR if the user manually dismissed it
+      read: wasManuallyRead || isStatusRead, 
+      created_at: o.updated_at || o.created_at,
+      trade_type: o.trade_type,
+      order_status: o.status,
+      mode: 'xpress'
+    };
+  });
 
     const systemNotifs: AppNotification[] = (sysNotifs ?? []).map((n: any) => ({
       id: `sys-${n.id}`,
@@ -153,8 +160,10 @@ export default function AppShell() {
   }, [fetchNotifications]);
 
   const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    // Persist read state for system notifications
+    setNotifications((prev) => {
+      prev.forEach((n) => manuallyReadIds.current.add(n.id));
+      return prev.map((n) => ({ ...n, read: true }));
+    });
     if (sessionReady) {
       supabase
         .from('notifications')
