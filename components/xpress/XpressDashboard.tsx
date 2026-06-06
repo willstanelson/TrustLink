@@ -1079,8 +1079,8 @@ export default function XpressDashboard({ onTopbarSync }: XpressDashboardProps =
   useEffect(() => { onTopbarSync?.setTotalActionable(totalActionableOrders); }, [totalActionableOrders]);
   useEffect(() => { onTopbarSync?.setIsUnsupportedNetwork(isUnsupportedNetwork); }, [isUnsupportedNetwork]);
   useEffect(() => { onTopbarSync?.setActiveChain(activeChain); }, [activeChain]);
-  useEffect(() => { onTopbarSync?.setActiveEmail(activeEmail); }, [activeEmail]);
-  useEffect(() => { onTopbarSync?.setUserAddress(userAddress); }, [userAddress]);
+  useEffect(() => { onTopbarSync?.setActiveEmail(activeEmail ?? undefined); }, [activeEmail]);
+  useEffect(() => { onTopbarSync?.setUserAddress(userAddress ?? undefined); }, [userAddress]);
 
   // Bind the search submit handler and logout so the topbar can trigger them
   useEffect(() => {
