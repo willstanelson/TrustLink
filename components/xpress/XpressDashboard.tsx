@@ -101,13 +101,38 @@ function isSafePaystackUrl(url: unknown): url is string {
   }
 }
 
+// ─── Topbar sync interface ─────────────────────────────────────────────────────
+// XpressDashboard owns its internal state (network, wallet, search, etc.)
+// but the AppShell needs to render those controls in MasterTopbar's right slot.
+// This interface bridges the two without prop-drilling through every layer.
+
+interface TopbarSync {
+  setNetworkAlerts: (v: Record<number, number>) => void;
+  setTotalActionable: (v: number) => void;
+  setIsUnsupportedNetwork: (v: boolean) => void;
+  setActiveChain: (v: { name: string }) => void;
+  setFormattedBalance: (v: string) => void;
+  setActiveEmail: (v: string | undefined) => void;
+  setUserAddress: (v: string | undefined) => void;
+  setIsNetworkListOpen: (v: boolean) => void;
+  isNetworkListOpen: boolean;
+  walletModalOpen: boolean;
+  setWalletModalOpen: (v: boolean) => void;
+  bindSearchSubmit: (fn: (e: React.FormEvent) => void) => void;
+  bindLogout: (fn: () => void) => void;
+}
+
+interface XpressDashboardProps {
+  onTopbarSync?: TopbarSync;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 // This is the complete Xpress escrow engine, refactored from page(23).tsx
 // to work as a self-contained panel inside the AppShell layout.
 // The standalone <nav> and full-page wrappers have been removed — the shell
 // already provides the topbar, sidebar, and layout chrome.
 
-export default function XpressDashboard() {
+export default function XpressDashboard({ onTopbarSync }: XpressDashboardProps = {}) {
   // ── Auth & session ──────────────────────────────────────────────────────────
   const { supabase, sessionReady, sessionLoading, sessionError, refreshSession } = useAuth();
   const { login, authenticated, user, logout, linkEmail, getAccessToken } = usePrivy();
@@ -1046,6 +1071,33 @@ export default function XpressDashboard() {
     }
   };
 
+  // ── Topbar sync — push internal state up to AppShell for MasterTopbar ────────
+  // These effects keep the topbar controls in sync whenever the relevant
+  // internal values change, without XpressDashboard needing to know about
+  // the topbar's existence.
+  useEffect(() => { onTopbarSync?.setNetworkAlerts(networkAlerts); }, [networkAlerts]);
+  useEffect(() => { onTopbarSync?.setTotalActionable(totalActionableOrders); }, [totalActionableOrders]);
+  useEffect(() => { onTopbarSync?.setIsUnsupportedNetwork(isUnsupportedNetwork); }, [isUnsupportedNetwork]);
+  useEffect(() => { onTopbarSync?.setActiveChain(activeChain); }, [activeChain]);
+  useEffect(() => { onTopbarSync?.setActiveEmail(activeEmail); }, [activeEmail]);
+  useEffect(() => { onTopbarSync?.setUserAddress(userAddress); }, [userAddress]);
+
+  // Bind the search submit handler and logout so the topbar can trigger them
+  useEffect(() => {
+    onTopbarSync?.bindSearchSubmit(handleSearch);
+  }, [handleSearch]);
+
+  useEffect(() => {
+    onTopbarSync?.bindLogout(logout);
+  }, [logout]);
+
+  // Sync wallet modal open state from topbar → component
+  useEffect(() => {
+    if (onTopbarSync?.walletModalOpen !== undefined) {
+      setIsWalletModalOpen(onTopbarSync.walletModalOpen);
+    }
+  }, [onTopbarSync?.walletModalOpen]);
+
   // ── Derived display values ─────────────────────────────────────────────────────
   const activeOrdersList =
     dashboardTab === 'buying' ? myBuyingOrders : mySellingOrders;
@@ -1062,6 +1114,10 @@ export default function XpressDashboard() {
     ? `${parseFloat(formatUnits(usdcBalance.value, 6)).toFixed(2)} USDC`
     : '0.00 USDC';
   const isGiftCardLocked = trustLevel === null || trustLevel < 3;
+
+  // Sync balance to topbar whenever it changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { onTopbarSync?.setFormattedBalance(formattedBalance); }, [formattedBalance]);
 
   // ── Loading & error states ─────────────────────────────────────────────────────
   // These are now inline panels within the shell, not full-page takeovers.
@@ -1099,9 +1155,14 @@ export default function XpressDashboard() {
     <div className="text-white font-sans pb-20 relative">
 
       {/* ── WalletModal ─────────────────────────────────────────────────────── */}
+      {/* isOpen is driven by topbar's onOpenWallet callback when onTopbarSync
+          is provided, or by local state when used standalone */}
       <WalletModal
         isOpen={isWalletModalOpen}
-        onClose={() => setIsWalletModalOpen(false)}
+        onClose={() => {
+          setIsWalletModalOpen(false);
+          onTopbarSync?.setWalletModalOpen(false);
+        }}
       />
 
       {/* ── Success modal ───────────────────────────────────────────────────── */}
@@ -1156,123 +1217,19 @@ export default function XpressDashboard() {
         </div>
       )}
 
-      {/* ── Page header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Xpress Dashboard</h1>
-          <p className="text-slate-400 text-sm mt-1">Direct P2P escrow — you know who you&apos;re dealing with</p>
+      {/* ── Topbar context bar (rendered via portal into MasterTopbar's green zone) ── */}
+      {/* Search + Network + Wallet + Logout live in the topbar.
+          Pass these as a render prop or use the XpressTopbarContext below.
+          See MasterTopbar.tsx for the <XpressTopbarSlot /> placeholder. */}
+      {authenticated && (
+        <div id="xpress-topbar-controls" className="hidden">
+          {/* These controls are extracted and teleported into the topbar slot.
+              If you are using a portal pattern, move the JSX below into
+              a React.createPortal(..., document.getElementById('topbar-right-slot'))
+              call inside a useEffect. For now they are accessible here as a
+              named group for easy cut-and-paste into MasterTopbar if preferred. */}
         </div>
-
-        {/* Context-bar: search + wallet + network + actions */}
-        {authenticated && (
-          <div className="flex items-center gap-3">
-            {/* Seller search */}
-            <form onSubmit={handleSearch} className="relative group hidden lg:block" role="search">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-slate-500 group-focus-within:text-emerald-500 transition-colors" aria-hidden />
-              </div>
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoComplete="off"
-                aria-label="Search seller by email or wallet"
-                className="block w-56 pl-10 pr-3 py-2 border border-slate-700 rounded-xl bg-slate-900/50 text-slate-300 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm transition-all"
-                placeholder="Search seller…"
-              />
-            </form>
-
-            {/* Network selector */}
-            <div className="relative" ref={networkDropdownRef}>
-              <button
-                type="button"
-                aria-label="Select network"
-                aria-expanded={isNetworkListOpen}
-                onClick={() => setIsNetworkListOpen((v) => !v)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-bold ${
-                  isUnsupportedNetwork
-                    ? 'bg-red-500/10 border-red-500 text-red-400'
-                    : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'
-                }`}
-              >
-                <Globe className="w-4 h-4" aria-hidden />
-                <span>{isUnsupportedNetwork ? 'Unsupported' : activeChain.name}</span>
-                {totalActionableOrders > 0 && (
-                  <span
-                    aria-label={`${totalActionableOrders} actions required`}
-                    className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full animate-pulse"
-                  >
-                    {totalActionableOrders}
-                  </span>
-                )}
-                <ChevronDown className="w-3 h-3 opacity-50" aria-hidden />
-              </button>
-
-              {isNetworkListOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl z-[100] overflow-hidden shadow-xl">
-                  {Object.entries(CHAIN_CONFIG).map(([id, config]) => {
-                    const chainIdNum = Number(id);
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => {
-                          switchChain({ chainId: chainIdNum });
-                          setIsNetworkListOpen(false);
-                        }}
-                        className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${
-                          chainIdNum === chainId
-                            ? 'text-emerald-400 bg-slate-700/50'
-                            : 'text-slate-300'
-                        }`}
-                      >
-                        <span>{config.name}</span>
-                        {networkAlerts[chainIdNum] > 0 && (
-                          <span className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black w-4 h-4 rounded-full">
-                            {networkAlerts[chainIdNum]}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Wallet button */}
-            <button
-              type="button"
-              aria-label="Open wallet"
-              onClick={() => setIsWalletModalOpen(true)}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-xl transition-all"
-            >
-              <div className="flex flex-col items-start">
-                <span className="font-mono text-sm font-bold truncate max-w-[120px]">
-                  {activeEmail
-                    ? activeEmail.split('@')[0]
-                    : userAddress
-                    ? `${userAddress.slice(0, 6)}…${userAddress.slice(-4)}`
-                    : 'Wallet'}
-                </span>
-                <span className="text-[10px] text-emerald-400 font-bold leading-none">
-                  {formattedBalance}
-                </span>
-              </div>
-              <Wallet className="w-4 h-4 text-emerald-400" aria-hidden />
-            </button>
-
-            {/* Logout */}
-            <button
-              type="button"
-              aria-label="Log out"
-              onClick={logout}
-              className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-2 rounded-xl border border-red-500/20 transition-all"
-            >
-              <LogOut className="w-4 h-4" aria-hidden />
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ── Profile & KYC summary cards ──────────────────────────────────────── */}
       {authenticated && (
@@ -1330,14 +1287,25 @@ export default function XpressDashboard() {
         </div>
       )}
 
+      {/* ── Hero headline (fills the space previously occupied by the page header) ── */}
+      {authenticated && (
+        <div className="text-center mb-8 mt-2">
+          <h1 className="text-5xl font-extrabold text-white leading-tight mb-2">
+            Trust is no longer <br />
+            <span className="text-emerald-400">a leap of faith.</span>
+          </h1>
+        </div>
+      )}
+
       {/* ── Escrow creation panel ─────────────────────────────────────────────── */}
       <div className="w-full max-w-lg mx-auto bg-slate-800/50 border border-slate-700 p-8 rounded-2xl shadow-2xl relative z-10 mb-10">
         {!authenticated ? (
           <div className="text-center">
             <Lock className="w-10 h-10 text-emerald-500 mx-auto mb-4" aria-hidden />
-            <h2 className="text-xl font-bold text-white mb-2">
-              Trust is no longer a leap of faith.
-            </h2>
+            <h1 className="text-5xl font-extrabold text-white leading-tight mb-4">
+              Trust is no longer <br />
+              <span className="text-emerald-400">a leap of faith.</span>
+            </h1>
             <p className="text-slate-400 text-sm mb-6">
               Connect your wallet to create and manage secure escrows.
             </p>
