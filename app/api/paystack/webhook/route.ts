@@ -24,6 +24,33 @@ export async function POST(req: Request) {
     const eventType: string = event.event;
     const data = event.data;
 
+    // 🚀 TRUSTLINK-DIIPMYND WEBHOOK FORWARDING:
+    // If the payment metadata specifies product: "diipmynd", forward it to DiipMynd's webhook handler.
+    if (data?.metadata?.product === 'diipmynd') {
+      try {
+        console.log(`[Webhook Forwarder] Forwarding event ${eventType} for DiipMynd to the target webhook handler...`);
+        const forwardRes = await fetch('https://diipmynd.trustlink.com.ng/api/webhooks/paystack', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-paystack-signature': signature || '',
+          },
+          body: rawBody,
+        });
+        const forwardText = await forwardRes.text();
+        console.log(`[Webhook Forwarder] Forward status: ${forwardRes.status}, response: ${forwardText}`);
+        
+        // Return 500 if forwarding failed, so Paystack retries the delivery.
+        if (!forwardRes.ok) {
+          return NextResponse.json({ status: false, error: 'Forwarding endpoint returned an error' }, { status: 500 });
+        }
+        return NextResponse.json({ status: true, forwarded: true });
+      } catch (forwardErr: any) {
+        console.error('[Webhook Forwarder] Error forwarding to DiipMynd:', forwardErr);
+        return NextResponse.json({ status: false, error: 'Forwarding connection failed' }, { status: 500 });
+      }
+    }
+
     if (!HANDLED_EVENTS.has(eventType)) return NextResponse.json({ status: true });
 
     if (eventType === 'charge.success') {
