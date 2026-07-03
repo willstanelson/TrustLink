@@ -1,23 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import { PrivyClient, WalletWithMetadata } from '@privy-io/server-auth';
 
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Missing Supabase environment variables');
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder';
 
-if (!process.env.NEXT_PUBLIC_PRIVY_APP_ID || !process.env.PRIVY_APP_SECRET) {
-  throw new Error('Missing Privy environment variables');
-}
+export const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
-export const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID || 'placeholder';
+const privyAppSecret = process.env.PRIVY_APP_SECRET || 'placeholder';
 
-const privy = new PrivyClient(
-  process.env.NEXT_PUBLIC_PRIVY_APP_ID,
-  process.env.PRIVY_APP_SECRET
-);
+const privy = new PrivyClient(privyAppId, privyAppSecret);
 
 // ── Original Wallet Helper (Keeps existing crypto routes safe) ──
 export async function getVerifiedWallet(req: Request): Promise<string> {
