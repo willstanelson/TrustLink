@@ -105,13 +105,13 @@ export default function VerificationCard({ params }: { params: Promise<{ id: str
                     {/* 🔥 FIX: Two distinct buttons so they can choose Fiat or Crypto for this user */}
                     <div className="flex gap-3">
                         <button 
-                            onClick={() => router.push(`/dashboard?seller=${encodeURIComponent(decodedId)}&autoMode=crypto`)} 
+                            onClick={() => router.push(`/escrow?seller=${encodeURIComponent(decodedId)}&autoMode=crypto`)} 
                             className="flex-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
                         >
                             <Bitcoin className="w-4 h-4 text-emerald-400" /> Pay Crypto
                         </button>
                         <button 
-                            onClick={() => router.push(`/dashboard?seller=${encodeURIComponent(decodedId)}&autoMode=fiat`)} 
+                            onClick={() => router.push(`/escrow?seller=${encodeURIComponent(decodedId)}&autoMode=fiat`)} 
                             className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
                         >
                             <Banknote className="w-4 h-4 text-white" /> Pay Fiat

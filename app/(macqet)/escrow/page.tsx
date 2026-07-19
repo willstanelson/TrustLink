@@ -467,7 +467,7 @@ function MainDashboard() {
           showToastRef.current('Payment was cancelled or failed.', 'error');
         }
         fetchDbOrders();
-        router.replace('/dashboard');
+        router.replace('/escrow');
       })
       .catch((err) => {
         if (!cancelled) showToastRef.current(err.message || 'Verification error', 'error');

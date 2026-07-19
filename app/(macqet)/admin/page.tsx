@@ -602,7 +602,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-[#0f172a] text-white pb-20 font-sans relative">
       <nav className="border-b border-emerald-500/20 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="text-slate-400 hover:text-white transition-colors">
+          <Link href="/escrow" className="text-slate-400 hover:text-white transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div className="bg-emerald-500/20 p-2 rounded-lg border border-emerald-500/30">

@@ -47,19 +47,19 @@ export default function ChatbotWidget() {
   useEffect(() => {
     (window as any).__EMBED_CONFIG__ = {
       publicToken: "h9giikzQeItPPh7d5brU4DfnW1jMe5C1xS4HhT9FJMPLn6SEXYfHoYIZSh9QT3i1",
-      getUserToken: function() {
+      getUserToken: function () {
         return document.querySelector("meta[name=user-token]")?.getAttribute("content") || null;
       },
-      getUserId: function() {
+      getUserId: function () {
         return document.querySelector("meta[name=user-id]")?.getAttribute("content") || null;
       },
-      getUserName: function() {
+      getUserName: function () {
         return document.querySelector("meta[name=user-name]")?.getAttribute("content") || null;
       },
-      getUserEmail: function() {
+      getUserEmail: function () {
         return document.querySelector("meta[name=user-email]")?.getAttribute("content") || null;
       },
-      getUserRole: function() {
+      getUserRole: function () {
         return document.querySelector("meta[name=user-role]")?.getAttribute("content") || null;
       }
     };

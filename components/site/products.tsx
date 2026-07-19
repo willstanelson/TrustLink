@@ -36,7 +36,7 @@ const products: Product[] = [
       "Real-time transaction tracking & alerts",
     ],
     ctaText: "Launch Escrow",
-    ctaHref: "https://trustlink.com.ng/dashboard",
+    ctaHref: "https://macqet.trustlink.com.ng/escrow",
     icon: Shield,
     accent: "from-brand/25 to-brand/5",
     glow: "shadow-glow",

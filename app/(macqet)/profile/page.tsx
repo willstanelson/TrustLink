@@ -173,7 +173,7 @@ export default function ProfilePage() {
       <div className="max-w-3xl mx-auto space-y-6">
         
         <Link 
-          href="/dashboard"
+          href="/escrow"
           className="inline-flex items-center gap-2 text-slate-400 hover:text-emerald-400 text-sm font-bold transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />

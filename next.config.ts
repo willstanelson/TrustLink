@@ -10,7 +10,10 @@ const BUILD_PLACEHOLDERS: Record<string, string> = {
   NEXT_PUBLIC_PRIVY_APP_ID: 'placeholder_privy_app_id',
   PRIVY_APP_SECRET: 'placeholder_privy_app_secret',
   PAYSTACK_SECRET_KEY: 'placeholder_paystack_secret_key',
-  RESEND_API_KEY: 're_placeholder'
+  RESEND_API_KEY: 're_placeholder',
+  DOJAH_APP_ID: 'placeholder_dojah_app_id',
+  DOJAH_SECRET_KEY: 'placeholder_dojah_secret_key',
+  DOJAH_BASE_URL: 'https://sandbox.dojah.io'
 };
 
 for (const [key, val] of Object.entries(BUILD_PLACEHOLDERS)) {

@@ -12,7 +12,7 @@ export default function SupportPage() {
             {/* Minimal Header */}
             <nav className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4">
                 <div className="max-w-4xl mx-auto flex items-center gap-4">
-                    <Link href="/dashboard" className="text-slate-400 hover:text-white transition-colors">
+                    <Link href="/escrow" className="text-slate-400 hover:text-white transition-colors">
                         <ArrowLeft className="w-5 h-5"/>
                     </Link>
                     <div className="bg-emerald-500/20 p-2 rounded-lg border border-emerald-500/30">

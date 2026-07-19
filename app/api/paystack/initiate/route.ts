@@ -43,7 +43,7 @@ export async function POST(request: Request) {
         amount: amountInKobo,
         currency: 'NGN',
         channels: ['card', 'bank', 'ussd', 'bank_transfer'],
-        callback_url: 'https://trustlink.com.ng/dashboard',
+        callback_url: 'https://macqet.trustlink.com.ng/escrow',
         metadata: {
             custom_fields: [
                 { display_name: "Seller Email", variable_name: "seller_email", value: seller_email },

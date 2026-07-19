@@ -27,7 +27,7 @@ const footerLinks = [
   {
     title: "Products",
     links: [
-      { label: "TrustLink Escrow", href: "https://trustlink.com.ng/dashboard", external: true },
+      { label: "TrustLink Escrow", href: "https://macqet.trustlink.com.ng/escrow", external: true },
       { label: "DiipMynd AI Video", href: "https://diipmynd.trustlink.com.ng", external: true },
     ],
   },
