@@ -26,6 +26,9 @@ export const metadata: Metadata = {
     ],
   },
   manifest: '/site.webmanifest',
+  verification: {
+    google: '22c9e3c4577a8661',
+  },
   openGraph: {
     title: "TrustLink Software Firm",
     description: "Trust is no longer a leap of faith. CAC Registration: 9499334.",
