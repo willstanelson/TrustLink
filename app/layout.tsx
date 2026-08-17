@@ -8,8 +8,23 @@ import ChatbotWidget from "@/components/ChatbotWidget";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TrustLink",
-  description: "Secure Escrow Protocol",
+  metadataBase: new URL('https://trustlink.com.ng'),
+  title: "TrustLink | Software Firm & Secure Escrow Protocol",
+  description: "TrustLink Software Firm (CAC 9499334) — Trust is no longer a leap of faith. Building, shipping, and maintaining high-trust software solutions.",
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/icon.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-icon.png' },
+    ],
+  },
+  openGraph: {
+    title: "TrustLink Software Firm",
+    description: "Trust is no longer a leap of faith. CAC Registration: 9499334.",
+    images: [{ url: '/logo.png', width: 483, height: 194, alt: 'TrustLink Software Firm' }],
+  },
 };
 
 export default function RootLayout({

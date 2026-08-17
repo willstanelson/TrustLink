@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePrivy } from '@privy-io/react-auth';
 import {
-  Lock,
   LogOut,
   User,
   Wallet,
@@ -15,7 +15,6 @@ import {
   Menu,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
 
 const SECTIONS = [
   {
@@ -57,14 +56,22 @@ export default function PortalNav() {
           {/* ── Logo + Portal Name */}
           <div className="flex items-center gap-3 min-w-max">
             <Link href="/escrow" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center rotate-3 group-hover:rotate-6 transition-transform">
-                <Lock className="w-4 h-4 text-white" />
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+                <Image
+                  src="/logo-icon.png"
+                  alt="TrustLink Logo"
+                  width={36}
+                  height={36}
+                  className="w-9 h-9 object-contain"
+                  priority
+                  unoptimized
+                />
               </div>
               <div className="hidden sm:flex flex-col leading-none">
                 <span className="text-sm font-black text-white tracking-tight">
                   Macqet
                 </span>
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em]">
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">
                   TrustLink Portal
                 </span>
               </div>

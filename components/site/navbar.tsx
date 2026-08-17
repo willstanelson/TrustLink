@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion, useScroll, useSpring, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { PremiumButton } from "./premium-button";
@@ -84,29 +85,16 @@ export function Navbar() {
           aria-label="Main navigation"
         >
           {/* Logo */}
-          <Link href="#home" className="group flex items-center gap-2.5" aria-label="TrustLink Home">
-            <span className="relative flex h-9 w-9 items-center justify-center">
-              <svg width="36" height="36" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform duration-300 group-hover:scale-105">
-                <rect width="32" height="32" rx="9" fill="url(#tl-grad)" />
-                <path d="M8 12L16 8L24 12V18C24 22.4183 20.4183 26 16 26C11.5817 26 8 22.4183 8 18V12Z" fill="rgba(255,255,255,0.18)" />
-                <path d="M16 13V19M13 16H19" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
-                <defs>
-                  <linearGradient id="tl-grad" x1="0" y1="0" x2="32" y2="32">
-                    <stop stopColor="#3B82F6" />
-                    <stop offset="1" stopColor="#06B6D4" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <span className="absolute inset-0 -z-10 rounded-[9px] bg-brand/40 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-100" />
-            </span>
-            <span className="flex flex-col leading-none">
-              <span className="text-base font-extrabold tracking-wide text-foreground">
-                TRUST<span className="text-gradient">LINK</span>
-              </span>
-              <span className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                Software Firm
-              </span>
-            </span>
+          <Link href="#home" className="group flex items-center" aria-label="TrustLink Home">
+            <Image
+              src="/logo.png"
+              alt="TrustLink Software Firm"
+              width={483}
+              height={194}
+              className="h-12 sm:h-14 md:h-16 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
+              priority
+              unoptimized
+            />
           </Link>
 
           {/* Desktop links */}
