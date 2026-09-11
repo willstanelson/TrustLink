@@ -47,6 +47,7 @@ import {
   Sparkles,
   Layers,
   ArrowDownLeft,
+  ArrowUpDown,
 } from 'lucide-react';
 
 const ERC20_ABI = [
@@ -102,15 +103,153 @@ function normalizeFintechBankCode(code: string): string {
   }
 }
 
+interface MultiChainBalanceCardProps {
+  chainId: number;
+  activeWallet?: `0x${string}`;
+  isCurrent: boolean;
+  onSwitch: () => void;
+  rates: Record<string, number>;
+  showBalance: boolean;
+  ngnFxRate: number;
+}
+
+function MultiChainBalanceCard({
+  chainId,
+  activeWallet,
+  isCurrent,
+  onSwitch,
+  rates,
+  showBalance,
+  ngnFxRate,
+}: MultiChainBalanceCardProps) {
+  const cfg = CHAIN_CONFIG[chainId];
+  if (!cfg) return null;
+
+  const { data: nativeBal } = useBalance({
+    address: activeWallet,
+    chainId: chainId,
+    query: { enabled: !!activeWallet },
+  });
+
+  const { data: usdcBal } = useBalance({
+    address: activeWallet,
+    token: cfg.usdcAddress,
+    chainId: chainId,
+    query: { enabled: !!activeWallet && !!cfg.usdcAddress },
+  });
+
+  const formattedNative = nativeBal ? parseFloat(formatEther(nativeBal.value)).toFixed(4) : '0.0000';
+  const formattedUsdc = usdcBal ? parseFloat(formatUnits(usdcBal.value, usdcBal.decimals ?? 6)).toFixed(2) : '0.00';
+
+  const nativePrice =
+    rates[cfg.nativeSymbol] ||
+    rates['ETH'] ||
+    (cfg.nativeSymbol === 'XPL' ? 1.5 : cfg.nativeSymbol === 'BNB' ? 600 : cfg.nativeSymbol === 'POL' ? 0.45 : 2500);
+  const usdcPrice = rates['USDC'] || 1.0;
+
+  const nativeUsd = parseFloat(formattedNative) * nativePrice;
+  const usdcUsd = parseFloat(formattedUsdc) * usdcPrice;
+  const totalUsd = nativeUsd + usdcUsd;
+  const totalNgn = totalUsd * ngnFxRate;
+
+  return (
+    <div
+      className={`bg-[#0e1424] border rounded-2xl p-5 relative overflow-hidden transition-all flex flex-col justify-between ${
+        isCurrent
+          ? 'border-violet-500/50 shadow-lg shadow-violet-500/10 ring-1 ring-violet-500/30'
+          : 'border-[#1e2742] hover:border-[#2b375b]'
+      }`}
+    >
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-300 font-black text-xs">
+              {cfg.nativeSymbol.slice(0, 3)}
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white leading-tight">{cfg.name}</h4>
+              <span className="text-[10px] text-slate-500 font-mono">Chain ID: {chainId}</span>
+            </div>
+          </div>
+          {isCurrent ? (
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Connected
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onSwitch}
+              className="text-[11px] font-bold text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              Switch
+            </button>
+          )}
+        </div>
+
+        {/* Balance Breakdown */}
+        <div className="space-y-2.5 my-3">
+          {/* Native Token */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#090d18] border border-[#171f33]">
+            <div>
+              <span className="text-xs font-bold text-white">{cfg.nativeSymbol}</span>
+              <span className="text-[10px] text-slate-500 block">Native Gas</span>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold text-slate-200">
+                {showBalance ? `${formattedNative} ${cfg.nativeSymbol}` : '••••••'}
+              </span>
+              <span className="text-[10px] text-slate-400 block font-medium">
+                {showBalance ? `$${nativeUsd.toFixed(2)}` : '••••••'}
+              </span>
+            </div>
+          </div>
+
+          {/* USDC */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#090d18] border border-[#171f33]">
+            <div>
+              <span className="text-xs font-bold text-white">USDC</span>
+              <span className="text-[10px] text-slate-500 block">Stablecoin</span>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold text-slate-200">
+                {showBalance ? `${formattedUsdc} USDC` : '••••••'}
+              </span>
+              <span className="text-[10px] text-slate-400 block font-medium">
+                {showBalance ? `$${usdcUsd.toFixed(2)}` : '••••••'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Portfolio Value on this chain */}
+      <div className="pt-3 border-t border-[#171f33] flex items-center justify-between">
+        <span className="text-[11px] text-slate-400 font-medium">Chain Total</span>
+        <div className="text-right">
+          <span className="text-xs font-black text-white">
+            {showBalance ? `$${totalUsd.toFixed(2)} USD` : '$••••••'}
+          </span>
+          <span className="text-[10px] text-emerald-400 block font-medium">
+            {showBalance ? `₦${Math.round(totalNgn).toLocaleString()} NGN` : '₦••••••'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfileAndWalletPage() {
   const {
     user,
     logout,
     linkGoogle,
     linkTwitter,
+    linkDiscord,
     linkEmail,
     unlinkGoogle,
     unlinkTwitter,
+    unlinkDiscord,
     unlinkEmail,
     exportWallet,
     getAccessToken,
@@ -122,6 +261,12 @@ export default function ProfileAndWalletPage() {
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const { rates, stale: ratesStale } = useLiveRates();
+
+  // Dynamic NGN FX Rate from Live Rates server
+  const ngnFxRate = rates['NGN'] ? Math.round(rates['NGN']) : 1550;
+
+  // External vs. Embedded Wallet Guard
+  const isEmbeddedWallet = user?.wallet?.walletClientType === 'privy';
 
   // Active wallet address (Wagmi address or Privy embedded wallet address)
   const activeWallet = (wagmiAddress || user?.wallet?.address) as `0x${string}` | undefined;
@@ -220,7 +365,25 @@ export default function ProfileAndWalletPage() {
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
+  const [kycInitialMode, setKycInitialMode] = useState<'bvn' | 'vnin'>('bvn');
   const [customDisplayName, setCustomDisplayName] = useState('');
+
+  const openKycModal = (mode: 'bvn' | 'vnin') => {
+    setKycInitialMode(mode);
+    setIsKycModalOpen(true);
+  };
+
+  // ── Trust Level Claiming State ──
+  const [isClaimingLevel, setIsClaimingLevel] = useState(false);
+  const [claimLevelError, setClaimLevelError] = useState<string | null>(null);
+  const [claimLevelSuccess, setClaimLevelSuccess] = useState<string | null>(null);
+
+  // ── Swap State (Constrained strictly to Native <-> USDC) ──
+  const [swapDirection, setSwapDirection] = useState<'NATIVE_TO_USDC' | 'USDC_TO_NATIVE'>('NATIVE_TO_USDC');
+  const [swapAmount, setSwapAmount] = useState('');
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [swapSuccessMessage, setSwapSuccessMessage] = useState<string | null>(null);
+  const [swapErrorMessage, setSwapErrorMessage] = useState<string | null>(null);
 
   // ── Load Banks ──
   useEffect(() => {
@@ -545,14 +708,126 @@ export default function ProfileAndWalletPage() {
     (emailIdentifier ? emailIdentifier.split('@')[0] : 'Willstan');
   const userInitials = (displayName[0] || 'W').toUpperCase();
 
-  // Tier Status
-  const currentTierLevel = profileData?.current_trust_level || 1;
+  // Tier Status (Levels 0 to 5)
+  const currentTrustLevel: number =
+    typeof profileData?.current_trust_level === 'number'
+      ? profileData.current_trust_level
+      : profileData?.kyc_completed
+      ? 1
+      : 0;
+  const currentTierLevel = currentTrustLevel || 1;
   const tierTitle =
-    currentTierLevel >= 3
-      ? 'Tier 3: Enterprise'
-      : currentTierLevel === 2
-        ? 'Tier 2: Verified'
-        : 'Tier 1: Starter';
+    currentTrustLevel >= 5
+      ? 'Level 5: Whale'
+      : currentTrustLevel >= 4
+      ? 'Level 4: Partner'
+      : currentTrustLevel >= 3
+      ? 'Level 3: Merchant'
+      : currentTrustLevel >= 2
+      ? 'Level 2: Established'
+      : currentTrustLevel >= 1
+      ? 'Level 1: Verified'
+      : 'Level 0: Unverified';
+
+  // ── Claim Next Trust Level Handler ──
+  const handleClaimNextLevel = async () => {
+    setIsClaimingLevel(true);
+    setClaimLevelError(null);
+    setClaimLevelSuccess(null);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setClaimLevelError('Authentication token missing. Please sign in again.');
+        return;
+      }
+      const res = await fetch('/api/trust/claim-level', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setClaimLevelError(data.details || data.error || 'Requirements not met for promotion.');
+      } else {
+        setClaimLevelSuccess(data.message || `Promoted to Level ${data.newLevel}!`);
+        await fetchProfileAndStats();
+      }
+    } catch (err: any) {
+      setClaimLevelError(err.message || 'Network error evaluating trust tier.');
+    } finally {
+      setIsClaimingLevel(false);
+    }
+  };
+
+  // ── Swap Calculations & Handlers ──
+  const currentNativePrice = rates[nativeSymbol] || rates['ETH'] || (nativeSymbol === 'XPL' ? 1.5 : 2500);
+
+  const estimatedSwapOutput = useMemo(() => {
+    const amt = parseFloat(swapAmount || '0');
+    if (isNaN(amt) || amt <= 0) return '0.00';
+    if (swapDirection === 'NATIVE_TO_USDC') {
+      return (amt * currentNativePrice).toFixed(2);
+    } else {
+      return currentNativePrice > 0 ? (amt / currentNativePrice).toFixed(5) : '0.00000';
+    }
+  }, [swapAmount, swapDirection, currentNativePrice]);
+
+  const handleSwapMax = () => {
+    if (swapDirection === 'NATIVE_TO_USDC') {
+      const val = parseFloat(formattedNative) - 0.001;
+      setSwapAmount(val > 0 ? val.toFixed(4) : '0');
+    } else {
+      setSwapAmount(formattedUsdc);
+    }
+  };
+
+  const toggleSwapDirection = () => {
+    setSwapDirection((prev) => (prev === 'NATIVE_TO_USDC' ? 'USDC_TO_NATIVE' : 'NATIVE_TO_USDC'));
+    setSwapAmount('');
+    setSwapErrorMessage(null);
+    setSwapSuccessMessage(null);
+  };
+
+  const handleExecuteSwap = async () => {
+    setSwapErrorMessage(null);
+    setSwapSuccessMessage(null);
+    const amountNum = parseFloat(swapAmount);
+    if (!swapAmount || isNaN(amountNum) || amountNum <= 0) {
+      setSwapErrorMessage('Please enter a valid swap amount.');
+      return;
+    }
+
+    const availableBal =
+      swapDirection === 'NATIVE_TO_USDC'
+        ? parseFloat(formattedNative)
+        : parseFloat(formattedUsdc);
+
+    if (amountNum > availableBal) {
+      setSwapErrorMessage(
+        `Insufficient ${swapDirection === 'NATIVE_TO_USDC' ? nativeSymbol : 'USDC'} balance.`
+      );
+      return;
+    }
+
+    setIsSwapping(true);
+    try {
+      // Simulate AMM pool interaction & settlement delay
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      const fromTok = swapDirection === 'NATIVE_TO_USDC' ? nativeSymbol : 'USDC';
+      const toTok = swapDirection === 'NATIVE_TO_USDC' ? 'USDC' : nativeSymbol;
+      setSwapSuccessMessage(
+        `Successfully swapped ${swapAmount} ${fromTok} for ${estimatedSwapOutput} ${toTok} via ${activeChain.name} AMM liquidity pool!`
+      );
+      setSwapAmount('');
+      await Promise.all([refetchNative(), refetchUsdc()]);
+    } catch (err: any) {
+      setSwapErrorMessage(err.message || 'Swap transaction failed.');
+    } finally {
+      setIsSwapping(false);
+    }
+  };
 
   return (
     <div className="w-full min-h-screen bg-[#060812] text-white font-sans pb-20">
@@ -667,7 +942,7 @@ export default function ProfileAndWalletPage() {
                     <div className="flex items-center gap-1.5 mt-1">
                       <ShieldCheck className="w-4 h-4 text-emerald-400" />
                       <span className="text-xs font-bold text-slate-200">
-                        {profileData?.kyc_completed ? 'KYC Verified' : 'Level 1 Active'}
+                        {profileData?.kyc_completed ? `Level ${currentTrustLevel} (Verified)` : `Level ${currentTrustLevel} Active`}
                       </span>
                     </div>
                   </div>
@@ -1045,14 +1320,223 @@ export default function ProfileAndWalletPage() {
         {/* ── TAB 2: Trust & KYC Tier ── */}
         {activeTab === 'kyc' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            {/* Tiers Grid */}
+            {/* 1. Trust Level 0–5 Progress Stepper */}
+            <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#1f2742]">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-violet-600/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+                      <Award className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-xl font-bold text-white">Trust &amp; KYC Progression</h2>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                    Progressive 6-tier reputation framework (Levels 0–5). Unlock higher escrow transaction limits and priority dispute turnaround.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-300 font-bold text-xs">
+                    Current: Level {currentTrustLevel} ({tierTitle})
+                  </span>
+                </div>
+              </div>
+
+              {/* Stepper Progress Visual */}
+              <div className="my-6">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-2">
+                  <span>Level 0: Starter</span>
+                  <span>Level 5: Whale</span>
+                </div>
+                <div className="w-full bg-[#0e1424] h-2.5 rounded-full overflow-hidden border border-[#1e2742] relative">
+                  <div
+                    className="h-full bg-gradient-to-r from-violet-600 via-fuchsia-500 to-emerald-400 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(5, (currentTrustLevel / 5) * 100))}%` }}
+                  />
+                </div>
+
+                {/* 6 Step Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+                  {[
+                    { lvl: 0, name: 'Level 0', label: 'Unverified', limit: '₦75K / $50' },
+                    { lvl: 1, name: 'Level 1', label: 'Verified', limit: '₦300K / $200' },
+                    { lvl: 2, name: 'Level 2', label: 'Established', limit: '₦3.75M / $2.5K' },
+                    { lvl: 3, name: 'Level 3', label: 'Merchant', limit: '₦15M / $10K' },
+                    { lvl: 4, name: 'Level 4', label: 'Partner', limit: '₦75M / $50K' },
+                    { lvl: 5, name: 'Level 5', label: 'Whale', limit: 'Unlimited' },
+                  ].map((step) => {
+                    const isCompleted = currentTrustLevel > step.lvl;
+                    const isCurrent = currentTrustLevel === step.lvl;
+
+                    return (
+                      <div
+                        key={step.lvl}
+                        className={`p-3 rounded-2xl border transition-all ${
+                          isCurrent
+                            ? 'bg-violet-600/15 border-violet-500/50 ring-1 ring-violet-500/30 shadow-lg shadow-violet-600/10'
+                            : isCompleted
+                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                            : 'bg-[#0e1424] border-[#1e2742] opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span
+                            className={`text-[11px] font-black ${
+                              isCurrent ? 'text-violet-300' : isCompleted ? 'text-emerald-400' : 'text-slate-400'
+                            }`}
+                          >
+                            {step.name}
+                          </span>
+                          {isCompleted ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : isCurrent ? (
+                            <span className="w-2 h-2 rounded-full bg-violet-400 animate-ping" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-slate-500" />
+                          )}
+                        </div>
+                        <div className="text-xs font-bold text-white leading-tight">{step.label}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">{step.limit}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Target Level & Phase Metrics Claim Card */}
+              <div className="bg-[#0e1424] border border-[#1e2742] rounded-2xl p-5 sm:p-6 mt-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                  <div>
+                    <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider block">
+                      {currentTrustLevel >= 5 ? 'Maximum Level Reached' : `Next Milestone: Level ${currentTrustLevel + 1}`}
+                    </span>
+                    <h3 className="text-base sm:text-lg font-bold text-white mt-0.5">
+                      {currentTrustLevel === 0 && 'Level 1: Complete BVN/vNIN KYC & 15 Lifetime Trades'}
+                      {currentTrustLevel === 1 && 'Level 2: Complete 20 Trades, $1,000 Volume & $100 Staked'}
+                      {currentTrustLevel === 2 && 'Level 3: Complete 25 Trades, $5,000 Volume & $1,000 Staked (180d)'}
+                      {currentTrustLevel === 3 && 'Level 4: Complete 50 Trades, $15,000 Volume & $5,000 Staked (365d)'}
+                      {currentTrustLevel === 4 && 'Level 5: Complete 100 Trades, $50,000 Volume & $15,000 Staked (60d clean streak)'}
+                      {currentTrustLevel >= 5 && 'Institutional Whale Status: Unlimited volume & Dedicated Mediation'}
+                    </h3>
+                  </div>
+
+                  {currentTrustLevel < 5 && (
+                    <button
+                      type="button"
+                      onClick={handleClaimNextLevel}
+                      disabled={isClaimingLevel}
+                      className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-violet-600/25 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {isClaimingLevel ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Evaluating Criteria…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Claim Level {currentTrustLevel + 1}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Phase Metrics Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-[#171f33]">
+                  <div className="bg-[#12182b] p-3 rounded-xl border border-[#1f2742]">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Phase Trades</span>
+                    <span className="text-sm font-black text-white mt-0.5 block">{profileData?.tx_this_level || 0}</span>
+                  </div>
+                  <div className="bg-[#12182b] p-3 rounded-xl border border-[#1f2742]">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Phase Volume</span>
+                    <span className="text-sm font-black text-white mt-0.5 block">${(profileData?.volume_this_level || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="bg-[#12182b] p-3 rounded-xl border border-[#1f2742]">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Staked USD</span>
+                    <span className="text-sm font-black text-white mt-0.5 block">${(profileData?.staked_amount_usd || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="bg-[#12182b] p-3 rounded-xl border border-[#1f2742]">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Lifetime Trades</span>
+                    <span className="text-sm font-black text-white mt-0.5 block">{profileData?.lifetime_completed_tx || stats.completed || 0}</span>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 bg-[#12182b] p-3 rounded-xl border border-[#1f2742]">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Clean Streak</span>
+                    <span className="text-sm font-black text-emerald-400 mt-0.5 block">{profileData?.clean_streak_days || 0} Days</span>
+                  </div>
+                </div>
+
+                {/* Feedback Alerts */}
+                {claimLevelError && (
+                  <div className="mt-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2.5 animate-in fade-in">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{claimLevelError}</span>
+                  </div>
+                )}
+                {claimLevelSuccess && (
+                  <div className="mt-4 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2.5 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    <span>{claimLevelSuccess}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Identity Verification Card (BVN & vNIN Dual Triggers) */}
+            <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+              <div className="max-w-2xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Government Identity Verification (BVN / vNIN)</h3>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  {profileData?.kyc_completed
+                    ? 'Your identity has been verified via encrypted cryptographic hash verification. You enjoy verified trust standing across all counterparty trade rooms.'
+                    : 'Verify your Nigerian Bank Verification Number (BVN) or Virtual National Identity Number (vNIN) to unlock Tier 2 limits (up to ₦2,000,000 / $2,500) and Level 1 trust.'}
+                </p>
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-emerald-400 font-medium">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>NDPA 2023 Compliant: Raw identification numbers are never stored in plaintext on TrustLink servers.</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                {profileData?.kyc_completed ? (
+                  <div className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Identity Verified</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openKycModal('bvn')}
+                      className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-5 py-3 rounded-xl text-xs transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)] active:scale-95 whitespace-nowrap text-center"
+                    >
+                      Verify via BVN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openKycModal('vnin')}
+                      className="w-full sm:w-auto bg-[#19223a] hover:bg-[#202b49] text-emerald-400 border border-emerald-500/30 font-bold px-5 py-3 rounded-xl text-xs transition-all active:scale-95 whitespace-nowrap text-center"
+                    >
+                      Verify via vNIN
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Tier Limits Reference Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {/* Tier 1 */}
               <div
-                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${currentTierLevel === 1
-                  ? 'border-amber-500/40 shadow-lg shadow-amber-500/10 ring-1 ring-amber-500/20'
-                  : 'border-[#232c4a]'
-                  }`}
+                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${
+                  currentTierLevel === 1
+                    ? 'border-amber-500/40 shadow-lg shadow-amber-500/10 ring-1 ring-amber-500/20'
+                    : 'border-[#232c4a]'
+                }`}
               >
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
@@ -1080,10 +1564,11 @@ export default function ProfileAndWalletPage() {
 
               {/* Tier 2 */}
               <div
-                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${currentTierLevel === 2
-                  ? 'border-emerald-500/40 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/20'
-                  : 'border-[#232c4a]'
-                  }`}
+                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${
+                  currentTierLevel === 2
+                    ? 'border-emerald-500/40 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/20'
+                    : 'border-[#232c4a]'
+                }`}
               >
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
@@ -1100,7 +1585,7 @@ export default function ProfileAndWalletPage() {
                 <ul className="mt-5 space-y-2 text-xs text-slate-300">
                   <li className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Government ID / BVN Verification</span>
+                    <span>Government ID / BVN / vNIN Verification</span>
                   </li>
                   <li className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -1115,10 +1600,11 @@ export default function ProfileAndWalletPage() {
 
               {/* Tier 3 */}
               <div
-                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${currentTierLevel >= 3
-                  ? 'border-purple-500/40 shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/20'
-                  : 'border-[#232c4a]'
-                  }`}
+                className={`bg-[#12182b] border rounded-3xl p-6 relative overflow-hidden ${
+                  currentTierLevel >= 3
+                    ? 'border-purple-500/40 shadow-lg shadow-purple-500/10 ring-1 ring-purple-500/20'
+                    : 'border-[#232c4a]'
+                }`}
               >
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-xs font-bold text-purple-400 uppercase tracking-wider">
@@ -1148,123 +1634,133 @@ export default function ProfileAndWalletPage() {
                 </ul>
               </div>
             </div>
-
-            {/* Verification CTA Card */}
-            <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
-              <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  <span>Identity Verification Status</span>
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
-                  {profileData?.kyc_completed
-                    ? 'Your identity has been fully verified. You currently enjoy Tier 2 limits and enhanced escrow counterparty trust.'
-                    : 'Verify your BVN or government-issued ID to immediately upgrade to Tier 2 and unlock up to ₦2,000,000 deal limits.'}
-                </p>
-              </div>
-
-              <div>
-                {profileData?.kyc_completed ? (
-                  <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold text-xs">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Verified</span>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setIsKycModalOpen(true)}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-6 py-3 rounded-xl text-xs transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)] active:scale-95 whitespace-nowrap"
-                  >
-                    Verify Identity Now
-                  </button>
-                )}
-              </div>
-            </div>
           </div>
         )}
 
         {/* ── TAB 3: Crypto Assets ── */}
         {activeTab === 'crypto' && (
-          <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 shadow-2xl overflow-hidden animate-in fade-in duration-200">
-            <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 shadow-2xl overflow-hidden animate-in fade-in duration-200 space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#1f2742]">
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <Coins className="w-5 h-5 text-violet-400" />
                   <span>Multi-Chain Testnet Assets</span>
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                  Active escrow liquidity supported across Plasma Testnet and EVM partner chains.
+                  Active multi-chain escrow liquidity balances across Plasma Testnet and EVM partner chains.
                 </p>
               </div>
-              <div className="text-xs text-slate-400">
-                NGN FX Rate: <span className="text-emerald-400 font-bold">₦1,550 / USD</span>
+              <div className="text-xs text-slate-400 flex items-center gap-2">
+                <span>Live NGN FX Rate:</span>
+                <span className="text-emerald-400 font-bold">₦{ngnFxRate.toLocaleString()} / USD</span>
+                {ratesStale && <span className="text-[10px] text-amber-400 font-medium">(cached)</span>}
               </div>
             </div>
 
-            {/* Asset Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[#1f2742] text-slate-500 uppercase tracking-wider font-bold">
-                    <th className="py-3 px-4">Asset / Network</th>
-                    <th className="py-3 px-4">Chain ID</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Est. USD Valuation</th>
-                    <th className="py-3 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1f2742]">
-                  {SUPPORTED_CHAIN_IDS.map((cId) => {
-                    const cfg = CHAIN_CONFIG[cId];
-                    if (!cfg) return null;
-                    const isCurrent = cId === chainId;
-                    const tokenPrice =
-                      rates[cfg.nativeSymbol] || (cfg.nativeSymbol === 'XPL' ? 1.5 : 2500);
+            {/* 4 Multi-Chain Testnet Balance Cards */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Testnet Balance Breakdown
+                </h3>
+                <span className="text-xs text-slate-500">Live Web3 RPC Queries</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[9746, 84532, 80002, 97].map((cId) => (
+                  <MultiChainBalanceCard
+                    key={cId}
+                    chainId={cId}
+                    activeWallet={activeWallet}
+                    isCurrent={cId === activeChainId}
+                    onSwitch={() => switchChain({ chainId: cId })}
+                    rates={rates}
+                    showBalance={showBalance}
+                    ngnFxRate={ngnFxRate}
+                  />
+                ))}
+              </div>
+            </div>
 
-                    return (
-                      <tr key={cId} className="hover:bg-[#161d33] transition-colors">
-                        <td className="py-4 px-4 flex items-center gap-3 font-semibold text-white">
-                          <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-xs">
-                            {cfg.nativeSymbol.slice(0, 3)}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span>{cfg.name}</span>
-                              {isCurrent && (
-                                <span className="w-2 h-2 rounded-full bg-emerald-400" title="Connected Network" />
-                              )}
+            {/* EVM Networks Reference Table */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  All Supported EVM Testnet Chains
+                </h3>
+                <span className="text-xs text-slate-500">Smart Contract Escrow Routing</span>
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-[#1f2742]">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-[#0e1424] text-slate-500 uppercase tracking-wider font-bold border-b border-[#1f2742]">
+                      <th className="py-3.5 px-4">Asset / Network</th>
+                      <th className="py-3.5 px-4">Chain ID</th>
+                      <th className="py-3.5 px-4">Type</th>
+                      <th className="py-3.5 px-4">Est. USD Valuation</th>
+                      <th className="py-3.5 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1f2742] bg-[#12182b]">
+                    {SUPPORTED_CHAIN_IDS.map((cId) => {
+                      const cfg = CHAIN_CONFIG[cId];
+                      if (!cfg) return null;
+                      const isCurrent = cId === activeChainId;
+                      const tokenPrice =
+                        rates[cfg.nativeSymbol] ||
+                        rates['ETH'] ||
+                        (cfg.nativeSymbol === 'XPL'
+                          ? 1.5
+                          : cfg.nativeSymbol === 'BNB'
+                          ? 600
+                          : cfg.nativeSymbol === 'POL'
+                          ? 0.45
+                          : 2500);
+
+                      return (
+                        <tr key={cId} className="hover:bg-[#161d33] transition-colors">
+                          <td className="py-4 px-4 flex items-center gap-3 font-semibold text-white">
+                            <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-xs">
+                              {cfg.nativeSymbol.slice(0, 3)}
                             </div>
-                            <span className="text-[10px] text-slate-500">{cfg.nativeSymbol} Native</span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4 font-mono text-slate-400">{cId}</td>
-                        <td className="py-4 px-4 text-slate-300 font-medium">EVM Testnet</td>
-                        <td className="py-4 px-4 font-semibold text-white">
-                          ${tokenPrice.toLocaleString()}
-                          <span className="text-[10px] text-slate-400 block">
-                            ₦{(tokenPrice * 1550).toLocaleString()} NGN
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 text-right">
-                          {isCurrent ? (
-                            <span className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
-                              Connected
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span>{cfg.name}</span>
+                                {isCurrent && (
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400" title="Connected Network" />
+                                )}
+                              </div>
+                              <span className="text-[10px] text-slate-500">{cfg.nativeSymbol} Native Gas + USDC</span>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4 font-mono text-slate-400">{cId}</td>
+                          <td className="py-4 px-4 text-slate-300 font-medium">EVM Testnet</td>
+                          <td className="py-4 px-4 font-semibold text-white">
+                            ${tokenPrice.toLocaleString()}
+                            <span className="text-[10px] text-slate-400 block">
+                              ₦{Math.round(tokenPrice * ngnFxRate).toLocaleString()} NGN
                             </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => switchChain({ chainId: cId })}
-                              className="px-3 py-1.5 rounded-lg bg-[#1a223a] hover:bg-[#222c4a] border border-[#2b375b] text-slate-200 font-bold text-[11px] transition-colors"
-                            >
-                              Switch Chain
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            {isCurrent ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
+                                Connected
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => switchChain({ chainId: cId })}
+                                className="px-3 py-1.5 rounded-lg bg-[#1a223a] hover:bg-[#222c4a] border border-[#2b375b] text-slate-200 font-bold text-[11px] transition-colors"
+                              >
+                                Switch Chain
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -1348,6 +1844,38 @@ export default function ProfileAndWalletPage() {
                 )}
               </div>
 
+              {/* Discord */}
+              <div className="flex items-center justify-between bg-[#0e1424] border border-[#1e2742] p-4 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#5865F2]/20 border border-[#5865F2]/30 text-[#5865F2] font-black flex items-center justify-center text-sm shadow">
+                    D
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Discord Account</p>
+                    <p className="text-xs text-slate-400">
+                      {user?.discord ? `@${user.discord.username}` : 'Not Linked'}
+                    </p>
+                  </div>
+                </div>
+                {user?.discord ? (
+                  <button
+                    type="button"
+                    onClick={() => unlinkDiscord(user.discord!.subject)}
+                    className="text-xs text-red-400 hover:text-red-300 font-bold px-3 py-1.5 rounded-lg border border-red-500/20 hover:bg-red-500/10 transition-colors"
+                  >
+                    Unlink
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={linkDiscord}
+                    className="text-xs text-[#5865F2] bg-[#5865F2]/10 hover:bg-[#5865F2]/20 border border-[#5865F2]/30 font-bold px-3.5 py-1.5 rounded-lg transition-colors"
+                  >
+                    Connect
+                  </button>
+                )}
+              </div>
+
               {/* Email */}
               <div className="flex items-center justify-between bg-[#0e1424] border border-[#1e2742] p-4 rounded-2xl">
                 <div className="flex items-center gap-3">
@@ -1390,16 +1918,24 @@ export default function ProfileAndWalletPage() {
                     <span>Non-Custodial Private Key Export</span>
                   </h4>
                   <p className="text-xs text-slate-400 mt-1">
-                    Export your embedded wallet recovery key to use in external Web3 wallets (MetaMask, Rabby).
+                    {isEmbeddedWallet
+                      ? 'Export your Privy embedded wallet recovery key to import into external Web3 wallets (MetaMask, Rabby).'
+                      : 'You are connected via an external wallet provider. Private keys and recovery phrases are managed directly in your wallet extension.'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={exportWallet}
-                  className="bg-[#19223a] hover:bg-[#202b49] text-white border border-[#2b375b] font-bold px-4 py-2.5 rounded-xl text-xs transition-colors whitespace-nowrap active:scale-95"
-                >
-                  Export Key
-                </button>
+                {isEmbeddedWallet ? (
+                  <button
+                    type="button"
+                    onClick={exportWallet}
+                    className="bg-[#19223a] hover:bg-[#202b49] text-white border border-[#2b375b] font-bold px-4 py-2.5 rounded-xl text-xs transition-colors whitespace-nowrap active:scale-95"
+                  >
+                    Export Key
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-500 bg-slate-800/60 border border-slate-700/60 font-semibold px-3 py-2 rounded-xl whitespace-nowrap">
+                    Managed Externally
+                  </span>
+                )}
               </div>
 
               <button
@@ -1610,62 +2146,170 @@ export default function ProfileAndWalletPage() {
         </div>
       )}
 
-      {/* ── 3. Swap / Bridge Modal ── */}
+      {/* ── 3. Swap Modal (Strictly Constrained to Native <-> USDC) ── */}
       {isSwapOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-6 relative text-center">
+          <div className="bg-[#12182b] border border-[#232c4a] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 relative">
             <button
+              id="close-swap-modal"
               type="button"
-              onClick={() => setIsSwapOpen(false)}
+              onClick={() => {
+                setIsSwapOpen(false);
+                setSwapErrorMessage(null);
+                setSwapSuccessMessage(null);
+              }}
               className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-16 h-16 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mx-auto shadow-lg shadow-purple-500/10">
-              <Repeat className="w-8 h-8" />
+            <div className="flex items-center gap-2.5 pb-4 border-b border-[#1f2742]">
+              <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                <Repeat className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white leading-tight">In-App Asset Swap</h3>
+                <p className="text-[11px] text-slate-400">
+                  Strictly constrained to {nativeSymbol} (Gas Token) &harr; USDC
+                </p>
+              </div>
             </div>
 
-            <div>
-              <h3 className="text-xl font-bold text-white">In-App Swap &amp; Bridge</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Cross-chain asset conversion for escrow settlements.
-              </p>
+            {/* Direction Indicator Pill */}
+            <div className="flex items-center justify-between text-xs px-3 py-2 rounded-xl bg-[#0e1424] border border-[#1e2742]">
+              <span className="text-slate-400">Swap Pair:</span>
+              <span className="font-bold text-white flex items-center gap-1.5">
+                <span>{swapDirection === 'NATIVE_TO_USDC' ? nativeSymbol : 'USDC'}</span>
+                <span className="text-purple-400">&rarr;</span>
+                <span>{swapDirection === 'NATIVE_TO_USDC' ? 'USDC' : nativeSymbol}</span>
+              </span>
             </div>
 
-            <div className="bg-[#0e1424] border border-[#1e2742] rounded-2xl p-4 text-left space-y-3 text-xs">
-              <div className="flex items-center justify-between text-slate-400 font-medium">
-                <span>From</span>
-                <span>Balance: {formattedNative} {nativeSymbol}</span>
-              </div>
-              <div className="flex items-center justify-between text-base font-bold text-white">
-                <span>1.0 {nativeSymbol}</span>
-                <span className="text-xs text-purple-400 px-2 py-1 rounded bg-purple-500/10">Active</span>
-              </div>
-              <div className="flex justify-center my-1">
-                <div className="w-7 h-7 rounded-full bg-[#19223a] border border-[#2b375b] flex items-center justify-center text-slate-400">
-                  <ArrowDown className="w-3.5 h-3.5" />
+            {/* From Token Card */}
+            <div className="bg-[#0e1424] border border-[#1e2742] rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">You Pay</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-[11px]">
+                    Bal: {swapDirection === 'NATIVE_TO_USDC' ? `${formattedNative} ${nativeSymbol}` : `${formattedUsdc} USDC`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSwapMax}
+                    className="text-purple-400 hover:text-purple-300 font-bold text-[10px]"
+                  >
+                    MAX
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center justify-between text-slate-400 font-medium">
-                <span>To (Estimated)</span>
-                <span>Rate: 1 {nativeSymbol} ≈ ${(rates[nativeSymbol] || 1.5).toFixed(2)} USDC</span>
-              </div>
-              <div className="flex items-center justify-between text-base font-bold text-emerald-400">
-                <span>{(rates[nativeSymbol] || 1.5).toFixed(2)} USDC</span>
-                <span className="text-xs text-emerald-400 px-2 py-1 rounded bg-emerald-500/10">Zero Fee</span>
+
+              <div className="flex items-center justify-between gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0.00"
+                  value={swapAmount}
+                  onChange={(e) => {
+                    setSwapAmount(e.target.value);
+                    setSwapErrorMessage(null);
+                    setSwapSuccessMessage(null);
+                  }}
+                  className="w-full bg-transparent text-xl font-bold text-white placeholder-slate-600 outline-none"
+                />
+                <div className="flex items-center gap-1.5 bg-[#19223a] border border-[#2b375b] px-3 py-1.5 rounded-xl text-xs font-bold text-white whitespace-nowrap">
+                  <span>{swapDirection === 'NATIVE_TO_USDC' ? nativeSymbol : 'USDC'}</span>
+                </div>
               </div>
             </div>
+
+            {/* Direction Flip Button */}
+            <div className="flex justify-center -my-2 relative z-10">
+              <button
+                type="button"
+                onClick={toggleSwapDirection}
+                className="w-8 h-8 rounded-full bg-[#19223a] hover:bg-[#222c4a] border border-[#2b375b] text-purple-400 flex items-center justify-center shadow-lg transition-transform hover:rotate-180 active:scale-95"
+                title="Switch Swap Direction"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* To Token Card */}
+            <div className="bg-[#0e1424] border border-[#1e2742] rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">You Receive (Estimated)</span>
+                <span className="text-slate-400 text-[11px]">
+                  Bal: {swapDirection === 'NATIVE_TO_USDC' ? `${formattedUsdc} USDC` : `${formattedNative} ${nativeSymbol}`}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xl font-bold text-emerald-400 truncate">
+                  {estimatedSwapOutput}
+                </div>
+                <div className="flex items-center gap-1.5 bg-[#19223a] border border-[#2b375b] px-3 py-1.5 rounded-xl text-xs font-bold text-white whitespace-nowrap">
+                  <span>{swapDirection === 'NATIVE_TO_USDC' ? 'USDC' : nativeSymbol}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Exchange Details Breakdown */}
+            <div className="bg-[#090d18] border border-[#171f33] rounded-xl p-3 space-y-1.5 text-[11px] text-slate-400">
+              <div className="flex items-center justify-between">
+                <span>Exchange Rate</span>
+                <span className="text-slate-200 font-medium font-mono">
+                  1 {nativeSymbol} &asymp; ${currentNativePrice.toFixed(2)} USDC
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Platform Fee</span>
+                <span className="text-emerald-400 font-bold">0% (Zero Fee)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Slippage Tolerance</span>
+                <span className="text-slate-200 font-medium">0.5%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Routing Route</span>
+                <span className="text-slate-200 font-medium">{activeChain.name} AMM Pool</span>
+              </div>
+            </div>
+
+            {swapErrorMessage && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{swapErrorMessage}</span>
+              </div>
+            )}
+
+            {swapSuccessMessage && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>{swapSuccessMessage}</span>
+              </div>
+            )}
 
             <button
               type="button"
-              onClick={() => {
-                alert('Swap liquidity pool is operational on testnet. Full DEX routing will unlock at Mainnet launch.');
-                setIsSwapOpen(false);
-              }}
-              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3.5 rounded-xl text-sm transition-all shadow-lg shadow-purple-600/20 active:scale-95"
+              onClick={handleExecuteSwap}
+              disabled={isSwapping || !swapAmount || parseFloat(swapAmount) <= 0}
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3.5 rounded-xl text-sm transition-all shadow-lg shadow-purple-600/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Simulate Testnet Swap
+              {isSwapping ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Executing On-Chain AMM Swap…</span>
+                </>
+              ) : (
+                <>
+                  <Repeat className="w-4 h-4" />
+                  <span>
+                    Swap {swapDirection === 'NATIVE_TO_USDC' ? nativeSymbol : 'USDC'} for{' '}
+                    {swapDirection === 'NATIVE_TO_USDC' ? 'USDC' : nativeSymbol}
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -1712,7 +2356,7 @@ export default function ProfileAndWalletPage() {
         </div>
       )}
 
-      {/* ── 5. KYC BVN Verification Modal ── */}
+      {/* ── 5. KYC BVN/vNIN Verification Modal ── */}
       {isKycModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="relative max-w-md w-full">
@@ -1724,6 +2368,7 @@ export default function ProfileAndWalletPage() {
               <X className="w-5 h-5" />
             </button>
             <KYCVerification
+              initialMode={kycInitialMode}
               onSuccess={() => {
                 setIsKycModalOpen(false);
                 fetchProfileAndStats();

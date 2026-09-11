@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { PrivyClient, WalletWithMetadata } from '@privy-io/server-auth';
 
 const privy = new PrivyClient(
-  process.env.NEXT_PUBLIC_PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
+  (process.env.PRIVY_APP_ID || process.env.NEXT_PUBLIC_PRIVY_APP_ID || '').trim(),
+  (process.env.PRIVY_APP_SECRET || '').trim()
 );
 
 const supabaseAdmin = createClient(
@@ -29,29 +29,73 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get('email');
 
-    if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 });
+    if (!email || !email.trim()) {
+      return NextResponse.json({ error: 'Email query parameter required' }, { status: 400 });
+    }
 
-    // 2. Ask Privy for the target user's wallet using their email
-    const privyUser = await privy.getUserByEmail(email);
-    if (!privyUser) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    // Explicit lowercase normalization
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const wallet = privyUser.linkedAccounts.find(
-      (a): a is WalletWithMetadata => a.type === 'wallet'
-    );
-    if (!wallet?.address) return NextResponse.json({ error: 'No wallet linked' }, { status: 404 });
-
-    // 3. Look up the bank details in Supabase safely
-    const { data: profile } = await supabaseAdmin
+    // 2. Query the profiles table searching by email_address with lowercase normalization
+    let { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('bank_code, account_number, account_name')
-      .ilike('wallet_address', wallet.address)
-      .single();
+      .select('bank_name, bank_code, account_number, account_name, wallet_address')
+      .ilike('email_address', normalizedEmail)
+      .maybeSingle();
 
-    if (!profile) return NextResponse.json({ error: 'No bank details saved' }, { status: 404 });
+    // 3. Fallback: If direct email matching returns nothing, query Privy server SDK, extract wallet address, and query profiles by wallet_address
+    if (!profile) {
+      try {
+        const privyUser = await privy.getUserByEmail(normalizedEmail);
+        const walletAddress =
+          privyUser?.wallet?.address ||
+          privyUser?.linkedAccounts?.find(
+            (a): a is WalletWithMetadata => a.type === 'wallet'
+          )?.address;
 
-    return NextResponse.json({ success: true, profile });
+        if (walletAddress) {
+          const normalizedWallet = walletAddress.trim().toLowerCase();
+          const { data: profileByWallet } = await supabaseAdmin
+            .from('profiles')
+            .select('bank_name, bank_code, account_number, account_name, wallet_address')
+            .ilike('wallet_address', normalizedWallet)
+            .maybeSingle();
+
+          if (profileByWallet) {
+            profile = profileByWallet;
+
+            // Auto-backfill email_address into profiles table for future queries
+            await supabaseAdmin
+              .from('profiles')
+              .update({
+                email_address: normalizedEmail,
+                updated_at: new Date().toISOString(),
+              })
+              .ilike('wallet_address', normalizedWallet);
+          }
+        }
+      } catch (privyErr) {
+        console.warn('Privy fallback lookup notice:', privyErr);
+      }
+    }
+
+    if (!profile || !profile.bank_code || !profile.account_number) {
+      return NextResponse.json({ error: 'No payout details saved for seller' }, { status: 404 });
+    }
+
+    // Return required payout credentials
+    return NextResponse.json({
+      success: true,
+      profile: {
+        bank_name: profile.bank_name,
+        bank_code: profile.bank_code,
+        account_number: profile.account_number,
+        account_name: profile.account_name,
+        wallet_address: profile.wallet_address,
+      },
+    });
   } catch (error: any) {
     console.error('Lookup error:', error);
     return NextResponse.json({ error: 'Failed to look up profile' }, { status: 500 });
   }
-}
+}

@@ -917,6 +917,7 @@ function MainDashboard() {
   const [isResolving, setIsResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
   const [autoFilled, setAutoFilled] = useState(false);
+  const [isLookingUpSeller, setIsLookingUpSeller] = useState(false);
 
   const [gcSellerAddress, setGcSellerAddress] = useState('');
   const [gcAmount, setGcAmount] = useState('');
@@ -1228,10 +1229,7 @@ function MainDashboard() {
   }, []);
 
   useEffect(() => {
-    if (autoFilled) {
-      setAutoFilled(false);
-      return;
-    }
+    if (autoFilled) return;
     const trimmedAccount = accountNumber.trim();
     const effectiveCode = normalizeFintechBankCode(selectedBank?.code || bankCode);
 
@@ -1245,33 +1243,38 @@ function MainDashboard() {
     }
   }, [accountNumber, bankCode, selectedBank, resolveBankAccount, autoFilled]);
 
-  useEffect(() => {
-    if (mode !== 'fiat') return;
-    if (!isValidEmail(sellerEmail)) return;
+  // ── Seller Profile Bank Auto-fill Lookup ──
+  const performSellerLookup = useCallback(
+    async (emailToLookup: string) => {
+      const trimmed = emailToLookup.trim();
+      if (!isValidEmail(trimmed)) return;
 
-    const controller = new AbortController();
-
-    const timerId = setTimeout(async () => {
       try {
+        setIsLookingUpSeller(true);
         const token = await getAccessToken();
         if (!token) return;
+
         const res = await fetch(
-          `/api/profile/lookup?email=${encodeURIComponent(sellerEmail.trim())}`,
-          { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
+          `/api/profile/lookup?email=${encodeURIComponent(trimmed)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
-        if (data.success && data.profile) {
+
+        if (res.ok && data.success && data.profile) {
           const rawCode = data.profile.bank_code || '';
           const normalizedCode = normalizeFintechBankCode(rawCode);
+          const savedBankName = data.profile.bank_name || '';
+
           setBankCode(normalizedCode);
           setAccountNumber(data.profile.account_number || '');
           setAccountName(data.profile.account_name || '');
+          setResolveError('');
 
           if (banks.length > 0) {
             const match = banks.find(
               (b) =>
-                (data.profile.bank_name && b.name.toLowerCase() === data.profile.bank_name.toLowerCase()) ||
-                (normalizedCode && b.code === normalizedCode)
+                (normalizedCode && normalizeFintechBankCode(b.code) === normalizedCode) ||
+                (savedBankName && b.name.toLowerCase() === savedBankName.toLowerCase())
             );
             if (match) {
               setSelectedBank(match);
@@ -1283,20 +1286,31 @@ function MainDashboard() {
           showToastRef.current("Seller's bank details auto-filled!", 'success');
         }
       } catch (err: any) {
-        if (err.name !== 'AbortError') console.error('Auto-fill lookup failed', err);
+        console.error('Auto-fill lookup failed', err);
+      } finally {
+        setIsLookingUpSeller(false);
       }
-    }, 800);
+    },
+    [getAccessToken, banks]
+  );
 
-    return () => {
-      clearTimeout(timerId);
-      controller.abort();
-    };
-  }, [sellerEmail, mode, getAccessToken, banks]);
+  // Debounced auto-lookup whenever a valid seller email is typed
+  useEffect(() => {
+    if (mode !== 'fiat') return;
+    const trimmed = sellerEmail.trim();
+    if (!isValidEmail(trimmed)) return;
+
+    const timer = setTimeout(() => {
+      performSellerLookup(trimmed);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [sellerEmail, mode, performSellerLookup]);
 
   // Synchronize selectedBank with loaded banks if bankCode is present
   useEffect(() => {
     if (banks.length > 0 && bankCode && !selectedBankId) {
-      const match = banks.find((b) => b.code === bankCode);
+      const match = banks.find((b) => normalizeFintechBankCode(b.code) === normalizeFintechBankCode(bankCode));
       if (match) {
         setSelectedBank(match);
         setSelectedBankId(String(match.id || match.slug));
@@ -3661,13 +3675,30 @@ function MainDashboard() {
                     </div>
 
                     <div>
-                      <label htmlFor="fiat-seller-email" className="text-xs text-violet-400 ml-1 font-bold">SELLER&apos;S TRUSTLINK EMAIL</label>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="fiat-seller-email" className="text-xs text-violet-400 ml-1 font-bold">
+                          SELLER&apos;S TRUSTLINK EMAIL
+                        </label>
+                        {isLookingUpSeller && (
+                          <span className="text-[10px] text-violet-400 flex items-center gap-1 font-medium animate-in fade-in">
+                            <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> Finding seller payout details…
+                          </span>
+                        )}
+                      </div>
                       <input
                         id="fiat-seller-email"
                         type="email"
                         autoComplete="email"
                         value={sellerEmail}
-                        onChange={(e) => setSellerEmail(e.target.value)}
+                        onChange={(e) => {
+                          setSellerEmail(e.target.value);
+                          setAutoFilled(false);
+                        }}
+                        onBlur={() => {
+                          if (isValidEmail(sellerEmail.trim())) {
+                            performSellerLookup(sellerEmail.trim());
+                          }
+                        }}
                         placeholder="seller@email.com"
                         className="w-full bg-[#0b0e1b] border border-violet-500/40 rounded-xl px-4 py-3 mt-1 outline-none focus:border-violet-500 transition-all text-sm"
                       />
@@ -3683,6 +3714,7 @@ function MainDashboard() {
                           onChange={(e) => {
                             const chosenId = e.target.value;
                             setSelectedBankId(chosenId);
+                            setAutoFilled(false);
                             const bankObj = banks.find(
                               (b) => String(b.id || b.slug) === chosenId
                             );
@@ -3719,6 +3751,7 @@ function MainDashboard() {
                             onChange={(e) => {
                               const val = e.target.value.replace(/\D/g, '');
                               setAccountNumber(val);
+                              setAutoFilled(false);
                               if (val.length !== 10) {
                                 setAccountName('');
                                 setResolveError('');

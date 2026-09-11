@@ -46,6 +46,7 @@
    - [KYC Tier Progression & Transaction Limits](#72-kyc-tier-progression--transaction-limits)
    - [Supported Digital Tokens & Nigerian Banks](#73-supported-digital-tokens--nigerian-banks)
    - [Dispute Handling & Resolution Steps](#74-dispute-handling--resolution-steps)
+8. [Changelog](#8-changelog)
 
 ---
 
@@ -616,7 +617,7 @@ erDiagram
 Stores unified Web2/Web3 user identity, reputation metrics, vendor registration, and payout details.
 - `id` (BIGINT/UUID, PK)
 - `wallet_address` (TEXT, UNIQUE, LOWERCASE)
-- `email_address` (TEXT)
+- `email_address` (TEXT, LOWERCASE NORMALIZED: Case-insensitive email address populated upon Privy email OTP or Google/social OAuth login; indexed and used for counterparty seller lookups)
 - `display_name` (TEXT)
 - `avatar_url` (TEXT)
 - `bank_name` (TEXT)
@@ -900,6 +901,67 @@ TrustLink employs a 6-tier progressive trust model evaluated by `/api/trust/clai
    - **Release to Seller:** If buyer submitted fraudulent claims after receiving goods, admin resolves to seller and credits payout.
    - **Severe Strike / Nuke:** Fraudulent actors receive strikes on their permanent trust passport, downgrading their trust level and barring them from marketplace operations.
 
+## 8. Changelog
+
+### [2.0.4] - September 2026
+- **Seller Email Lookup & Auth Sync Database Synchronization:**
+  - **Privy Auth Profile Sync (`app/api/auth/sync/route.ts`):**
+    - Audited profile initialization and update hooks executed upon Privy login.
+    - Added helper `extractEmailFromPrivyUser` extracting user email across direct properties (`user.email`, `user.google`, `user.apple`, `user.discord`, `user.github`, `user.linkedin`) and `user.linkedAccounts`.
+    - Enforced strict lowercase normalization (`email.trim().toLowerCase()`).
+    - Explicitly populates `email_address` on new profile creations (`upsert` with `ignoreDuplicates: true`) and performs targeted updates to `email_address` on existing profile records.
+  - **Profile Counterparty Lookup Verification (`app/api/profile/lookup/route.ts`):**
+    - Enforced lowercase normalization on the incoming `email` query parameter (`email.trim().toLowerCase()`).
+    - Standardized query against `profiles` table using `.ilike('email_address', normalizedEmail)`.
+    - Reinforced Privy SDK fallback (`privy.getUserByEmail(normalizedEmail)`) to extract wallet address (`user.wallet?.address || linkedAccounts`) and query `profiles` by `wallet_address`.
+    - Auto-backfills resolved `email_address` into `public.profiles` for subsequent lookups.
+    - Verified returning `bank_name`, `bank_code`, `account_number`, and `account_name`.
+  - **Schema Specification (`docs/ARCHITECTURE.md` Section 5.2):**
+    - Updated `profiles` table schema specification to explicitly define `email_address` (TEXT, LOWERCASE NORMALIZED).
+
+### [2.0.3] - September 2026
+- **Seller Bank Auto-Fill Restoration (`app/api/profile/lookup/route.ts` & `app/(macqet)/escrow/page.tsx`):**
+  - **Profile Lookup Route Hardening (`app/api/profile/lookup/route.ts`):**
+    - Updated query to match `profiles` table directly with case-insensitive email matching (`.ilike('email_address', normalizedEmail)`), with Privy wallet resolution as a fallback.
+    - Confirmed returning seller's saved `bank_name`, `bank_code`, `account_number`, and `account_name` (plus `wallet_address`).
+  - **Create Escrow Modal Auto-Fill Triggers (`app/(macqet)/escrow/page.tsx`):**
+    - Wired dual triggers on "SELLER'S TRUSTLINK EMAIL" input: debounced effect (600ms) and `onBlur` handler upon valid email entry.
+    - Added real-time loading indicator (`isLookingUpSeller`) showing lookup progress next to the input label.
+    - Automatically maps seller's `bank_code` and `bank_name` to the bank selector using unique IDs/slugs to prevent dropdown collision.
+    - Auto-populates `account_number` and verified `account_name` with verified state protection (`autoFilled` guard) to avoid redundant Paystack re-resolution, while gracefully permitting manual entry if no profile exists.
+
+### [2.0.2] - September 2026
+- **Profile & Wallet Hub Complete Feature Implementation (`app/(macqet)/profile/page.tsx` & `components/KYCVerification.tsx`):**
+  - **Trust & KYC Tier Progression (Tab 2):**
+    - Built interactive Level 0–5 visual Progress Stepper mapping directly to `/api/trust/claim-level` tiers (Level 0 Unverified to Level 5 Whale).
+    - Wired Phase Performance Metrics grid displaying Phase Trades (`tx_this_level`), Phase Volume (`volume_this_level`), Staked Balance (`staked_amount_usd`), Lifetime Trades (`lifetime_completed_tx`), and Clean Streak days (`clean_streak_days`).
+    - Bound `handleClaimNextLevel` CTA calling `POST /api/trust/claim-level` with Privy Bearer authentication, loading state, and descriptive requirement error feedback.
+    - Wired dual modal triggers for both BVN (`openKycModal('bvn')`) and Virtual NIN (`openKycModal('vnin')`), passing `initialMode` to `KYCVerification` with NDPA 2023 compliance assurances.
+  - **Multi-Chain Testnet Assets & Dynamic FX (Tab 3):**
+    - Created `MultiChainBalanceCard` component querying live on-chain balances for Plasma Testnet (XPL, 9746), Base Sepolia (ETH, 84532), Polygon Amoy (POL, 80002), and BSC Testnet (BNB, 97) via Wagmi `useBalance`.
+    - Integrated dynamic live NGN FX rate (`rates['NGN'] || 1550`) removing hardcoded values across multi-chain balance cards and supported network tables.
+  - **Security & Linked Accounts (Tab 4):**
+    - Connected unhandled Discord OAuth linkage (`linkDiscord` / `unlinkDiscord` / `user?.discord`).
+    - Added wallet type guard on `exportWallet()`, allowing key export for Privy embedded wallets while displaying an external provider notice for injected wallets (MetaMask, Rabby).
+  - **Interactive Native $\longleftrightarrow$ USDC Swap Modal:**
+    - Replaced dummy alert with an interactive bidirectional Swap Modal strictly constrained to Native Gas Token $\longleftrightarrow$ USDC.
+    - Integrated direction switching (`NATIVE_TO_USDC` vs. `USDC_TO_NATIVE`), live rate calculations, MAX balance auto-fill, zero platform fee, 0.5% slippage tolerance, balance validation, and automated balance refetching (`refetchNative`, `refetchUsdc`).
+  - **Protection Guard:**
+    - Preserved 100% of Tab 1 (Bank Account Details) and Paystack account resolution logic untouched.
+
+### [2.0.1] - September 2026
+- **Create Escrow Modal Bank Dropdown Fix (`app/(macqet)/escrow/page.tsx`):**
+  - Fixed bank dropdown jumping to "BANKIT MFB" when selecting OPay by changing `<option>` values from non-unique `bank.code` to unique `bank.id || bank.slug`.
+  - Applied composite keys (`key={`${b.code}-${b.id || idx}`}`) across bank options to eliminate React key collision warnings.
+  - Added `selectedBank` object and `selectedBankId` state tracking in `MainDashboard`, extracting normalized codes directly from the selected bank item.
+  - Integrated `/api/resolve-account` endpoint with NUBAN 10-digit trigger and fintech bank code normalization (OPay `999992`, PalmPay `999991`, Moniepoint `50515`, Kuda `50211`).
+- **Profile Page Payout Setup Hardening (`app/(macqet)/profile/page.tsx`):**
+  - Standardized bank dropdown options to use unique composite keys and bank IDs.
+  - Bound auto-resolved account names to read-only verified display containers.
+- **Centralized Account Resolution Route (`app/api/resolve-account/route.ts`):**
+  - Created dedicated, hardened resolution endpoint with parameter guards and runtime Paystack secret verification.
+
 ---
 
 *TrustLink Architecture Specification — Document End.*
+
