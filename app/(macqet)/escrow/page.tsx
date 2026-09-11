@@ -796,6 +796,43 @@ function OrderDetailModal({
   );
 }
 
+interface BankItem {
+  id?: number | string;
+  name: string;
+  code: string;
+  slug?: string;
+}
+
+/**
+ * Normalizes digital bank/fintech NIBSS codes to Paystack expected resolution codes.
+ * - OPay: NIBSS 50572 / 100004 / OPAY -> Paystack 999992
+ * - PalmPay: NIBSS 090275 / 100033 / PALMPAY -> Paystack 999991
+ * - Moniepoint: NIBSS 090405 / MONIEPOINT -> Paystack 50515
+ * - Kuda Bank: NIBSS 090267 / KUDA -> Paystack 50211
+ */
+function normalizeFintechBankCode(code: string): string {
+  if (!code) return '';
+  const trimmed = String(code).trim().toUpperCase();
+  switch (trimmed) {
+    case '50572':
+    case '100004':
+    case 'OPAY':
+      return '999992';
+    case '090275':
+    case '100033':
+    case 'PALMPAY':
+      return '999991';
+    case '090405':
+    case 'MONIEPOINT':
+      return '50515';
+    case '090267':
+    case 'KUDA':
+      return '50211';
+    default:
+      return String(code).trim();
+  }
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function MainDashboard() {
@@ -810,7 +847,7 @@ function MainDashboard() {
     }
   }, [ready, authenticated, router]);
 
-  const [banks, setBanks] = useState<{ code: string; name: string }[]>([]);
+  const [banks, setBanks] = useState<BankItem[]>([]);
   const [isLoadingBanks, setIsLoadingBanks] = useState(true);
 
   useEffect(() => {
@@ -819,7 +856,21 @@ function MainDashboard() {
       try {
         const res = await fetch('/api/banks');
         const json = await res.json();
-        if (!cancelled && Array.isArray(json?.data)) setBanks(json.data);
+        if (!cancelled && Array.isArray(json?.data)) {
+          const mappedBanks: BankItem[] = json.data.map((b: any, idx: number) => {
+            const code = normalizeFintechBankCode(b.code);
+            const slug = b.slug || b.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `bank-${idx}`;
+            const id = b.id != null ? String(b.id) : slug;
+            return {
+              ...b,
+              id,
+              slug,
+              code,
+              name: b.name,
+            };
+          });
+          setBanks(mappedBanks);
+        }
       } catch (err) {
         console.error('Error loading banks:', err);
       } finally {
@@ -858,6 +909,8 @@ function MainDashboard() {
   const [buyerEmail, setBuyerEmail] = useState('');
   const [sellerEmail, setSellerEmail] = useState('');
   const [fiatDescription, setFiatDescription] = useState('');
+  const [selectedBank, setSelectedBank] = useState<BankItem | null>(null);
+  const [selectedBankId, setSelectedBankId] = useState('');
   const [bankCode, setBankCode] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
@@ -1153,12 +1206,19 @@ function MainDashboard() {
     }
 
     try {
+      const normalizedBank = normalizeFintechBankCode(bank);
+      const queryParams = new URLSearchParams({
+        account_number: account.trim(),
+        bank_code: normalizedBank,
+      });
+
       const response = await fetch(
-        `/api/paystack/resolve?account_number=${encodeURIComponent(account)}&bank_code=${encodeURIComponent(bank)}`
+        `/api/resolve-account?${queryParams.toString()}`
       );
       const data = await response.json();
-      if (!data.status) throw new Error(data.message || 'Unknown bank error');
-      if (data.data?.account_name) setAccountName(data.data.account_name);
+      if (!response.ok || !data.status) throw new Error(data.error || data.message || 'Verification failed');
+      const resolvedName = data.data?.account_name || data.account_name;
+      if (resolvedName) setAccountName(resolvedName);
       else throw new Error('Account name not found');
     } catch (err: any) {
       setResolveError(err.message || 'Verification failed');
@@ -1172,13 +1232,18 @@ function MainDashboard() {
       setAutoFilled(false);
       return;
     }
-    if (accountNumber.length === 10 && bankCode) {
-      resolveBankAccount(accountNumber, bankCode);
+    const trimmedAccount = accountNumber.trim();
+    const effectiveCode = normalizeFintechBankCode(selectedBank?.code || bankCode);
+
+    if (trimmedAccount.length === 10 && effectiveCode) {
+      resolveBankAccount(trimmedAccount, effectiveCode);
     } else {
-      setAccountName('');
-      setResolveError('');
+      if (trimmedAccount.length < 10) {
+        setAccountName('');
+        setResolveError('');
+      }
     }
-  }, [accountNumber, bankCode, resolveBankAccount, autoFilled]);
+  }, [accountNumber, bankCode, selectedBank, resolveBankAccount, autoFilled]);
 
   useEffect(() => {
     if (mode !== 'fiat') return;
@@ -1196,9 +1261,24 @@ function MainDashboard() {
         );
         const data = await res.json();
         if (data.success && data.profile) {
-          setBankCode(data.profile.bank_code);
-          setAccountNumber(data.profile.account_number);
-          setAccountName(data.profile.account_name);
+          const rawCode = data.profile.bank_code || '';
+          const normalizedCode = normalizeFintechBankCode(rawCode);
+          setBankCode(normalizedCode);
+          setAccountNumber(data.profile.account_number || '');
+          setAccountName(data.profile.account_name || '');
+
+          if (banks.length > 0) {
+            const match = banks.find(
+              (b) =>
+                (data.profile.bank_name && b.name.toLowerCase() === data.profile.bank_name.toLowerCase()) ||
+                (normalizedCode && b.code === normalizedCode)
+            );
+            if (match) {
+              setSelectedBank(match);
+              setSelectedBankId(String(match.id || match.slug));
+            }
+          }
+
           setAutoFilled(true);
           showToastRef.current("Seller's bank details auto-filled!", 'success');
         }
@@ -1211,7 +1291,18 @@ function MainDashboard() {
       clearTimeout(timerId);
       controller.abort();
     };
-  }, [sellerEmail, mode, getAccessToken]);
+  }, [sellerEmail, mode, getAccessToken, banks]);
+
+  // Synchronize selectedBank with loaded banks if bankCode is present
+  useEffect(() => {
+    if (banks.length > 0 && bankCode && !selectedBankId) {
+      const match = banks.find((b) => b.code === bankCode);
+      if (match) {
+        setSelectedBank(match);
+        setSelectedBankId(String(match.id || match.slug));
+      }
+    }
+  }, [banks, bankCode, selectedBankId]);
 
   useEffect(() => {
     const trxref = searchParams.get('trxref') || searchParams.get('reference');
@@ -1868,7 +1959,8 @@ function MainDashboard() {
   };
 
   const handleFiatTransaction = async () => {
-    if (!fiatAmount || !accountNumber || !bankCode || !buyerEmail || !sellerEmail) { showToastRef.current('Please fill all fields', 'error'); return; }
+    const effectiveCode = selectedBank?.code || bankCode;
+    if (!fiatAmount || !accountNumber || !effectiveCode || !buyerEmail || !sellerEmail) { showToastRef.current('Please fill all fields', 'error'); return; }
     if (!isValidEmail(buyerEmail) || !isValidEmail(sellerEmail)) { showToastRef.current('Invalid email address', 'error'); return; }
     
     if (buyerEmail.trim().toLowerCase() === sellerEmail.trim().toLowerCase()) { 
@@ -1887,7 +1979,7 @@ function MainDashboard() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: fiatAmount, email: buyerEmail, seller_email: sellerEmail,
-          seller_bank: banks.find((b) => b.code === bankCode)?.name || bankCode,
+          seller_bank: selectedBank?.name || banks.find((b) => b.code === effectiveCode)?.name || effectiveCode,
           seller_number: accountNumber, seller_name: accountName,
           description: sanitize(fiatDescription || 'Escrow Payment', 500), buyer_wallet: userAddress,
         }),
@@ -3587,12 +3679,32 @@ function MainDashboard() {
                         <label htmlFor="fiat-bank" className="sr-only">Select Bank</label>
                         <select
                           id="fiat-bank"
-                          value={bankCode}
-                          onChange={(e) => setBankCode(e.target.value)}
+                          value={selectedBankId}
+                          onChange={(e) => {
+                            const chosenId = e.target.value;
+                            setSelectedBankId(chosenId);
+                            const bankObj = banks.find(
+                              (b) => String(b.id || b.slug) === chosenId
+                            );
+                            setSelectedBank(bankObj || null);
+                            if (bankObj) {
+                              setBankCode(bankObj.code);
+                            } else {
+                              setBankCode('');
+                            }
+                            setResolveError('');
+                          }}
                           className="w-full bg-[#0b0e1b] border border-[#232a45] rounded-xl px-4 py-3 outline-none focus:border-violet-500 transition-all text-sm appearance-none"
                         >
                           <option value="">{isLoadingBanks ? 'Loading banks…' : 'Select Bank'}</option>
-                          {banks.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
+                          {banks.map((b, idx) => {
+                            const optionValue = String(b.id || b.slug);
+                            return (
+                              <option key={`${b.code}-${b.id || idx}`} value={optionValue}>
+                                {b.name}
+                              </option>
+                            );
+                          })}
                         </select>
                         <div className="relative">
                           <label htmlFor="fiat-acct-no" className="sr-only">Account Number</label>
@@ -3604,7 +3716,14 @@ function MainDashboard() {
                             maxLength={10}
                             autoComplete="off"
                             value={accountNumber}
-                            onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '');
+                              setAccountNumber(val);
+                              if (val.length !== 10) {
+                                setAccountName('');
+                                setResolveError('');
+                              }
+                            }}
                             placeholder="Account Number (10 digits)"
                             className="w-full bg-[#0b0e1b] border border-[#232a45] rounded-xl px-4 py-3 outline-none focus:border-violet-500 transition-all text-sm"
                           />
