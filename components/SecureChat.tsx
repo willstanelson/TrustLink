@@ -48,6 +48,13 @@ export default function SecureChat({
 
       if (data) setMessages(data);
       setLoading(false);
+
+      if (address) {
+        const updateQuery = supabase.from('messages').update({ read: true });
+        if (orderId) updateQuery.eq('order_id', orderId);
+        else if (requestId) updateQuery.eq('request_id', requestId);
+        updateQuery.neq('sender_address', address).then(() => {}, () => {});
+      }
     };
 
     fetchMessages();
@@ -64,8 +71,15 @@ export default function SecureChat({
             // Avoid duplicate additions from optimistic rendering
             if (prev.some((m) => m.id === payload.new.id)) return prev;
             return [...prev, payload.new];
+          });
+
+          if (address && payload.new?.sender_address?.toLowerCase() !== address.toLowerCase()) {
+            supabase
+              .from('messages')
+              .update({ read: true })
+              .eq('id', payload.new.id)
+              .then(() => {}, () => {});
           }
-          );
         }
       )
       .subscribe();

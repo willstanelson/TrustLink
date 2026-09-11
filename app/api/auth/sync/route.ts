@@ -3,11 +3,13 @@ import { PrivyClient } from '@privy-io/server-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -18,13 +20,13 @@ export async function POST(request: Request) {
       process.env.PRIVY_APP_SECRET!
     );
     const verifiedClaims = await privy.verifyAuthToken(token);
-    
+
     // 2. Extract Web3 Wallet
     const user = await privy.getUser(verifiedClaims.userId);
     const walletAddress = user.wallet?.address;
 
     if (!walletAddress) {
-      return NextResponse.json({ error: "No wallet found" }, { status: 400 });
+      return NextResponse.json({ error: 'No wallet found' }, { status: 400 });
     }
 
     // 3. Admin DB connection
@@ -34,30 +36,31 @@ export async function POST(request: Request) {
     );
 
     // 4. TOP-GRADE DEFENSE: Safe Upsert
-    // ignoreDuplicates: true means "If they already exist, do absolutely nothing."
     const { error } = await supabase
       .from('profiles')
-      .upsert({
-        wallet_address: walletAddress,
-        kyc_completed: false,
-        profile_completed: false,
-        current_trust_level: 0,
-        tx_this_level: 0,
-        volume_this_level: 0,
-        lifetime_completed_tx: 0,
-        lifetime_disputed_tx: 0,
-        lifetime_volume_usd: 0,
-        unique_buyers: 0,
-        staked_amount_usd: 0,
-        clean_streak_days: 0
-      }, { onConflict: 'wallet_address', ignoreDuplicates: true });
+      .upsert(
+        {
+          wallet_address: walletAddress.toLowerCase(),
+          kyc_completed: false,
+          profile_completed: false,
+          current_trust_level: 0,
+          tx_this_level: 0,
+          volume_this_level: 0,
+          lifetime_completed_tx: 0,
+          lifetime_disputed_tx: 0,
+          lifetime_volume_usd: 0,
+          unique_buyers: 0,
+          staked_amount_usd: 0,
+          clean_streak_days: 0,
+        },
+        { onConflict: 'wallet_address', ignoreDuplicates: true }
+      );
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, message: "Sync complete" });
-
+    return NextResponse.json({ success: true, message: 'Sync complete' });
   } catch (err: any) {
-    console.error("Sync Error:", err);
-    return NextResponse.json({ error: "Failed to sync profile" }, { status: 500 });
+    console.error('Sync Error:', err);
+    return NextResponse.json({ error: 'Failed to sync profile' }, { status: 500 });
   }
 }

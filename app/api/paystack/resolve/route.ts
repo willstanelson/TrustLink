@@ -18,8 +18,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ status: false, message: 'Server Config Error' }, { status: 500 });
   }
 
+  // Normalize digital banks (OPay, PalmPay, Moniepoint, Kuda) to Paystack resolution codes
+  let effectiveBankCode = bank_code.trim().toUpperCase();
+  if (effectiveBankCode === '50572' || effectiveBankCode === '100004' || effectiveBankCode === 'OPAY') effectiveBankCode = '999992';
+  else if (effectiveBankCode === '090275' || effectiveBankCode === '100033' || effectiveBankCode === 'PALMPAY') effectiveBankCode = '999991';
+  else if (effectiveBankCode === '090405' || effectiveBankCode === 'MONIEPOINT') effectiveBankCode = '50515';
+  else if (effectiveBankCode === '090267' || effectiveBankCode === 'KUDA') effectiveBankCode = '50211';
+  else effectiveBankCode = bank_code.trim();
+
   try {
-    const res = await fetch(`https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`, {
+    const res = await fetch(`https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(account_number)}&bank_code=${encodeURIComponent(effectiveBankCode)}`, {
       headers: {
         Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
         'Content-Type': 'application/json',

@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { PrivyClient, User, WalletWithMetadata } from '@privy-io/server-auth';
 
-const privy = new PrivyClient(
-  process.env.NEXT_PUBLIC_PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
-);
+function getPrivyClient() {
+  const appId = (process.env.PRIVY_APP_ID || process.env.NEXT_PUBLIC_PRIVY_APP_ID || '').trim();
+  const appSecret = (process.env.PRIVY_APP_SECRET || '').trim();
+  return new PrivyClient(appId, appSecret);
+}
 
 // ==========================================
 // IN-MEMORY RATE LIMITER (with Auto-Pruning)
@@ -56,10 +57,17 @@ const getEmailFromPrivyUser = (privyUser: User): string | null => {
 };
 
 export async function POST(req: Request) {
+  console.log('--- PRIVY DEBUG ---');
+  console.log('App ID:', process.env.PRIVY_APP_ID || process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+  console.log('Secret present:', !!process.env.PRIVY_APP_SECRET);
+  console.log('Secret length:', process.env.PRIVY_APP_SECRET?.trim().length);
+  console.log('SUPABASE_JWT_SECRET present:', !!process.env.SUPABASE_JWT_SECRET);
+  console.log('-------------------');
+
   // 1. CRITICAL SERVER CHECK (Fail fast, waste zero external calls)
   if (!process.env.SUPABASE_JWT_SECRET) {
     console.error('CRITICAL: SUPABASE_JWT_SECRET is missing during a session request.');
-    return NextResponse.json({ error: 'Internal server misconfiguration' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server misconfiguration: missing SUPABASE_JWT_SECRET' }, { status: 500 });
   }
 
   // 2. Rate Limit Check with properly parsed Proxy IPs
@@ -75,6 +83,8 @@ export async function POST(req: Request) {
     }
 
     const privyToken = authHeader.split(' ')[1];
+
+    const privy = getPrivyClient();
 
     // 3. Verify the Privy token (returns lightweight claims)
     const claims = await privy.verifyAuthToken(privyToken);
@@ -106,12 +116,19 @@ export async function POST(req: Request) {
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
       },
-      process.env.SUPABASE_JWT_SECRET // TypeScript knows this is safe because of the guard at the top
+      process.env.SUPABASE_JWT_SECRET
     );
 
     return NextResponse.json({ token: supabaseJwt, walletAddress, emailAddress });
   } catch (err: unknown) {
     console.error('Session error:', err);
+    if (err instanceof Error) {
+      console.error('Session error details:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+      });
+    }
 
     if (err instanceof Error) {
       const name = err.name;

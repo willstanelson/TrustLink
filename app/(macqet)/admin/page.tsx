@@ -11,7 +11,7 @@ import {
   useChainId,
 } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
-import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG } from '@/app/constants';
+import { CONTRACT_ABI, CONTRACT_ADDRESS, CHAIN_CONFIG, DEFAULT_CHAIN_ID, SUPPORTED_CHAIN_IDS } from '@/app/constants';
 import {
   Loader2,
   CheckCircle,
@@ -206,8 +206,8 @@ export default function AdminPage() {
 
   const { switchChainAsync } = useSwitchChain();
   const chainId = useChainId();
-  const activeChainId = CHAIN_CONFIG[chainId] ? chainId : 9746;
-  const activeChain = CHAIN_CONFIG[activeChainId] ?? CHAIN_CONFIG[9746];
+  const activeChainId = CHAIN_CONFIG[chainId] ? chainId : DEFAULT_CHAIN_ID;
+  const activeChain = CHAIN_CONFIG[activeChainId] ?? CHAIN_CONFIG[DEFAULT_CHAIN_ID];
 
   const [isNetworkListOpen, setIsNetworkListOpen] = useState(false);
   const networkDropdownRef = useRef<HTMLDivElement>(null);
@@ -281,13 +281,13 @@ export default function AdminPage() {
         seller: String(e[2]),
         amount: isNative ? formatEther(rawAmount) : formatUnits(rawAmount, 6),
         rawAmount,
-        symbol: isNative ? activeChain.nativeSymbol : 'USDC',
+        symbol: isNative ? (activeChain.nativeCurrency?.symbol || activeChain.nativeSymbol) : 'USDC',
         isDisputed,
         isCompleted,
         status: isCompleted ? 'COMPLETED' : isDisputed ? 'DISPUTED' : 'ACTIVE',
       }];
     });
-  }, [escrowsData, indexesToFetch, activeChain.nativeSymbol]);
+  }, [escrowsData, indexesToFetch, activeChain.nativeCurrency?.symbol, activeChain.nativeSymbol]);
 
   const cryptoDisputes = useMemo(() => cryptoOrders.filter(o => o.status === 'DISPUTED'), [cryptoOrders]);
   const cryptoHistory = useMemo(() => cryptoOrders.filter(o => o.status !== 'DISPUTED'), [cryptoOrders]);
@@ -625,11 +625,12 @@ export default function AdminPage() {
 
           {isNetworkListOpen && (
             <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl z-[100] overflow-hidden shadow-xl">
-              {Object.entries(CHAIN_CONFIG).map(([id, config]) => {
-                const chainIdNum = Number(id);
+              {SUPPORTED_CHAIN_IDS.map((chainIdNum) => {
+                const config = CHAIN_CONFIG[chainIdNum];
+                if (!config) return null;
                 return (
                   <button
-                    key={id}
+                    key={chainIdNum}
                     onClick={() => { switchChainAsync({ chainId: chainIdNum }); setIsNetworkListOpen(false); }}
                     className={`w-full text-left px-4 py-3 text-sm font-bold hover:bg-slate-700 transition-colors flex items-center justify-between ${chainIdNum === chainId ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}
                   >

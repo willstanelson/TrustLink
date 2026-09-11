@@ -1,4 +1,10 @@
-import { sepolia, bscTestnet, baseSepolia, optimismSepolia, polygonAmoy } from 'viem/chains';
+import {
+  sepolia,
+  bscTestnet,
+  baseSepolia,
+  optimismSepolia,
+  polygonAmoy,
+} from 'viem/chains';
 import { defineChain } from 'viem';
 import type { Chain } from 'viem';
 
@@ -466,58 +472,70 @@ export const CONTRACT_ABI = [
     }
   ] as const;
 
-const plasmaTestnet = defineChain({
+export const plasmaTestnet = defineChain({
   id: 9746,
   name: 'Plasma Testnet',
-  nativeCurrency: { name: 'Plasma', symbol: 'PLS', decimals: 18 },
+  nativeCurrency: { name: 'Plasma', symbol: 'XPL', decimals: 18 },
   rpcUrls: {
     default: { http: ['https://testnet-rpc.plasma.to'] },
+    public: { http: ['https://testnet-rpc.plasma.to'] },
   },
   blockExplorers: {
     default: { name: 'PlasmaScan', url: 'https://testnet.plasmascan.to' },
   },
 });
 
+export const DEFAULT_CHAIN_ID = 9746;
+
+export const SUPPORTED_CHAIN_IDS = [9746, 97, 80002, 84532, 11155111, 11155420] as const;
+
 export const CHAIN_CONFIG: Record<number, {
   name: string;
   nativeSymbol: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
   usdcAddress: `0x${string}`;
   viemChain: Chain;
 }> = {
   9746: {
-    name: 'Plasma',
-    nativeSymbol: 'PLS',
-    usdcAddress: '0xf884b63217d3427677c7b045370bb269fabf1fa7',   // replace with actual
+    name: 'Plasma Testnet',
+    nativeSymbol: 'XPL',
+    nativeCurrency: { name: 'Plasma', symbol: 'XPL', decimals: 18 },
+    usdcAddress: '0xf884b63217d3427677c7b045370bb269fabf1fa7',
     viemChain: plasmaTestnet,
-  },
-  84532: {
-    name: 'Base Sepolia',
-    nativeSymbol: 'ETH',
-    usdcAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-    viemChain: baseSepolia,
-  },
-  11155111: {
-    name: 'Ethereum Sepolia',
-    nativeSymbol: 'ETH',
-    usdcAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-    viemChain: sepolia,
-  },
-  11155420: {
-    name: 'Optimism Sepolia',
-    nativeSymbol: 'ETH',
-    usdcAddress: '0x5fd84259d66Cd46123540766Be93DFE6D43130D',
-    viemChain: optimismSepolia,
-  },
-  80002: {
-    name: 'Polygon Amoy',
-    nativeSymbol: 'MATIC',
-    usdcAddress: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
-    viemChain: polygonAmoy,
   },
   97: {
     name: 'BSC Testnet',
     nativeSymbol: 'BNB',
-    usdcAddress: '0x03f0f06cD3B43b62e928e10Eaf05f0eB10D55683',   // no official Circle USDC on BSC testnet — use your mock token
-    viemChain: bscTestnet,
+    nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+    usdcAddress: '0x03f0f06cD3B43b62e928e10Eaf05f0eB10D55683',
+    viemChain: { ...bscTestnet, nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 } },
+  },
+  80002: {
+    name: 'Polygon Amoy',
+    nativeSymbol: 'POL',
+    nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
+    usdcAddress: '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
+    viemChain: { ...polygonAmoy, nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 } },
+  },
+  84532: {
+    name: 'Base Sepolia',
+    nativeSymbol: 'ETH',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    usdcAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    viemChain: { ...baseSepolia, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } },
+  },
+  11155111: {
+    name: 'Ethereum Sepolia',
+    nativeSymbol: 'ETH',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    usdcAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    viemChain: { ...sepolia, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } },
+  },
+  11155420: {
+    name: 'Optimism Sepolia',
+    nativeSymbol: 'OP',
+    nativeCurrency: { name: 'Optimism', symbol: 'OP', decimals: 18 },
+    usdcAddress: '0x5fd84259d66Cd46123540766Be93DFE6D43130D',
+    viemChain: { ...optimismSepolia, nativeCurrency: { name: 'Optimism', symbol: 'OP', decimals: 18 } },
   },
 };

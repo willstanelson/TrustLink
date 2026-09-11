@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin, getVerifiedWallet } from '@/lib/auth-helpers';
-import { getNormalizedUSD } from '@/lib/rates';
+import { getNormalizedUSD } from '@/lib/rates-server';
 
 export async function POST(req: Request) {
   try {

@@ -68,6 +68,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
   // FIX 2: Safe active chain -- never undefined
   const activeChainId = isUnsupportedNetwork ? FALLBACK_CHAIN_ID : chainId;
   const activeChain = CHAIN_CONFIG[activeChainId] ?? CHAIN_CONFIG[FALLBACK_CHAIN_ID];
+  const nativeCurrencySymbol = activeChain.nativeCurrency?.symbol || activeChain.nativeSymbol;
 
   const {
     sendTransaction, data: nativeHash, isPending: isSendingNative,
@@ -155,7 +156,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
   const getAmountError = (): string | null => {
     if (!amount || parseFloat(amount) <= 0) return null;
     if (sendToken === 'NATIVE' && nativeBalance && parseFloat(amount) > parseFloat(nativeBalance.formatted))
-      return `Amount exceeds ${activeChain.nativeSymbol} balance`;
+      return `Amount exceeds ${nativeCurrencySymbol} balance`;
     if (sendToken === 'USDC' && usdcBalance && parseFloat(amount) > parseFloat(usdcBalance.formatted))
       return 'Amount exceeds USDC balance';
     return null;
@@ -249,7 +250,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
                         <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white font-bold text-[10px] border border-purple-500 tracking-tighter">
-                              {activeChain.nativeSymbol.slice(0, 4)}
+                              {nativeCurrencySymbol.slice(0, 4)}
                             </div>
                             <div><p className="text-sm font-bold text-white">{activeChain.name}</p><p className="text-[10px] text-slate-500">{activeChain.name} Network</p></div>
                           </div>
@@ -279,7 +280,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
                     </button>
                     <div className="space-y-4">
                       <h3 className="text-xl font-bold text-white">Receive / Deposit</h3>
-                      <p className="text-slate-400 text-sm">Send {activeChain.nativeSymbol} or USDC to your wallet on the {activeChain.name} Network.</p>
+                      <p className="text-slate-400 text-sm">Send {nativeCurrencySymbol} or USDC to your wallet on the {activeChain.name} Network.</p>
                       <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 break-all text-white font-mono text-sm text-center">
                         {address ?? 'No address connected'}
                       </div>
@@ -324,7 +325,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
                         {(['NATIVE', 'USDC'] as TokenType[]).map((t) => (
                           <button key={t} onClick={() => setSendToken(t)}
                             className={`flex-1 py-2 rounded-lg text-sm font-bold ${sendToken === t ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}>
-                            {t === 'NATIVE' ? activeChain.nativeSymbol : 'USDC'}
+                            {t === 'NATIVE' ? nativeCurrencySymbol : 'USDC'}
                           </button>
                         ))}
                       </div>
@@ -344,7 +345,7 @@ export default function WalletModal({ isOpen, onClose }: { isOpen: boolean; onCl
                         <div className="relative">
                           <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00"
                             className={`w-full bg-slate-800 border rounded-xl p-4 text-white focus:border-emerald-500 outline-none ${amountError ? 'border-red-500' : 'border-slate-700'}`} />
-                          <span className="absolute right-4 top-4 text-sm font-bold text-slate-500">{sendToken === 'NATIVE' ? activeChain.nativeSymbol : 'USDC'}</span>
+                          <span className="absolute right-4 top-4 text-sm font-bold text-slate-500">{sendToken === 'NATIVE' ? nativeCurrencySymbol : 'USDC'}</span>
                         </div>
                         {amountError && <p className="text-red-400 text-xs mt-1">{amountError}</p>}
                       </div>

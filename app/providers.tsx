@@ -5,7 +5,7 @@ import { WagmiProvider, createConfig } from '@privy-io/wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http } from 'wagmi';
 import { defineChain } from 'viem';
-import { baseSepolia, bscTestnet, optimismSepolia, polygonAmoy } from 'viem/chains';
+import { baseSepolia, bscTestnet, optimismSepolia, polygonAmoy, sepolia } from 'viem/chains';
 import React, { useState, useEffect } from 'react';
 
 // 🚀 THE FIX: Import AuthProvider here, inside the Client Component boundary
@@ -35,13 +35,14 @@ export const plasmaTestnet = defineChain({
 // 2. WAGMI CONFIG
 // ==========================================
 export const wagmiConfig = createConfig({
-  chains: [plasmaTestnet, baseSepolia, bscTestnet, optimismSepolia, polygonAmoy],
+  chains: [plasmaTestnet, bscTestnet, polygonAmoy, baseSepolia, sepolia, optimismSepolia],
   transports: {
     [plasmaTestnet.id]: http(),
-    [baseSepolia.id]: http(),
     [bscTestnet.id]: http(),
-    [optimismSepolia.id]: http(),
     [polygonAmoy.id]: http(),
+    [baseSepolia.id]: http(),
+    [sepolia.id]: http(),
+    [optimismSepolia.id]: http(),
   },
 });
 
@@ -84,11 +85,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || 'YOUR_PRIVY_APP_ID_HERE'}
       config={{
         defaultChain: plasmaTestnet,
-        supportedChains: [plasmaTestnet, baseSepolia, bscTestnet, optimismSepolia, polygonAmoy],
+        supportedChains: [plasmaTestnet, bscTestnet, polygonAmoy, baseSepolia, sepolia, optimismSepolia],
         appearance: {
           theme: 'dark',
           accentColor: '#10b981',
-          logo: 'https://trustlink.com.ng/logo-icon.png',
+          logo: '/logo.png',
         },
         walletConnectCloudProjectId: '836bc2231c157ce81b1030811a1512d5',
         embeddedWallets: {

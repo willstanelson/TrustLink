@@ -15,14 +15,14 @@ const supabaseAdmin = createClient(
 async function getVerifiedWallet(req: Request): Promise<string> {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Unauthorized');
-  
+
   const privyToken = authHeader.split(' ')[1];
   const claims = await privy.verifyAuthToken(privyToken);
   const privyUser = await privy.getUser(claims.userId);
   const wallet = privyUser.linkedAccounts.find(
     (a): a is WalletWithMetadata => a.type === 'wallet'
   );
-  
+
   if (!wallet?.address) throw new Error('No wallet found');
   return wallet.address.toLowerCase();
 }
@@ -51,17 +51,17 @@ export async function POST(req: Request) {
     if (order.currency === 'USDT' || order.currency === 'USD') {
       normalizedUSD = Number(Number(order.crypto_amount).toFixed(2));
     } else {
-      let currentNairaRate = 1600; // Ultimate fallback
-      
+      let currentNairaRate = 0;
+
       const { data: rateData, error: rateError } = await supabaseAdmin
         .from('exchange_rates')
         .select('rate, updated_at')
         .eq('pair', 'USDT_NGN')
-        .single();
+        .maybeSingle();
 
       // 🚀 Explicit intentional freshness check
-      const isFresh = !rateError && 
-        rateData?.rate && 
+      const isFresh = !rateError &&
+        rateData?.rate &&
         rateData?.updated_at &&
         (Date.now() - new Date(rateData.updated_at).getTime()) < 30 * 60 * 1000; // 30 mins
 
@@ -97,10 +97,10 @@ export async function POST(req: Request) {
 
     if (rpcError) throw rpcError;
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: 'Escrow released successfully',
-      volumeAddedUSD: normalizedUSD 
+      volumeAddedUSD: normalizedUSD
     });
 
   } catch (error: any) {

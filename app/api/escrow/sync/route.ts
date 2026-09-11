@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     // 2. Fetch the order and verify ownership before touching it
     const { data: order } = await supabaseAdmin
       .from('escrow_orders')
-      .select('seller_address, buyer_wallet_address')
+      .select('seller_address, buyer_wallet_address, amount')
       .eq('id', orderId)
       .single();
 
@@ -99,7 +99,11 @@ export async function POST(req: Request) {
     // 5. Sync the verified truth to Supabase
     const { error } = await supabaseAdmin
       .from('escrow_orders')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .update({ 
+        status: newStatus, 
+        updated_at: new Date().toISOString(),
+        ...(newStatus === 'completed' && order.amount ? { released_amount: order.amount } : {})
+      })
       .eq('id', orderId);
 
     if (error) throw error;
