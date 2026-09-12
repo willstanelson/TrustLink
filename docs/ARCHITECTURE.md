@@ -130,7 +130,7 @@ The application utilizes Next.js edge middleware (`middleware.ts`) to provide cl
 ```
 app/
 ├── (macqet)/                  # Authenticated Portal Route Group (Subdomain: macqet.trustlink.com.ng)
-│   ├── layout.tsx             # Portal shell: Sidebar navigation, wallet pills, network dropdown
+│   ├── layout.tsx             # Universal Portal Route Guard & Shell: Full-screen loading guard, logout handler, sidebar
 │   ├── escrow/page.tsx        # Escrow Dashboard: Metric ribbons, trade tables, Create Escrow modal
 │   ├── marketplace/           # Bendansalet Marketplace: Directory, vendor discovery, requests
 │   │   ├── page.tsx           # Vendor directory with category and geo-proximity filters
@@ -149,6 +149,15 @@ app/
 ├── constants.ts               # Smart contract ABIs, addresses, chain definitions, token metadata
 └── globals.css                # Tailwind CSS tokens, glow utilities, keyframe animations
 ```
+
+#### Universal Portal Route Guard (`app/(macqet)/layout.tsx`)
+Rather than relying on fragmented, page-by-page authentication checks, access to the entire `(macqet)` portal is defended at the root layout boundary:
+- **Zero Data Leakage Loading Guard:** While Privy authentication is initializing (`!ready`), the layout renders a full-page branded loading spinner and strictly refuses to mount or render any `children`, preventing cached data or protected trade state from flashing or leaking into the client DOM.
+- **Immediate Ejection:** When `ready && !authenticated`, the layout immediately invokes `router.replace('/login')` and returns `null`, preventing protected child components from mounting.
+- **Centralized Universal Logout:** The portal shell (`SidebarNavigation` and Profile settings) exposes a centralized logout action (`logoutUser` from `AuthContext`):
+  1. Clears Supabase authentication state (`supabase.auth.signOut()`) and purges local storage/cookies (`supabase.auth.token`, `sb-*`).
+  2. Invokes Privy's cryptographic `logout()` session termination.
+  3. Executes a hard window redirect (`window.location.href = '/login'`) to flush all in-memory React state, Wagmi/TanStack query caches, and socket listeners across all portal tabs.
 
 ### 1.4 Client-Server Interaction Model
 
@@ -902,6 +911,17 @@ TrustLink employs a 6-tier progressive trust model evaluated by `/api/trust/clai
    - **Severe Strike / Nuke:** Fraudulent actors receive strikes on their permanent trust passport, downgrading their trust level and barring them from marketplace operations.
 
 ## 8. Changelog
+
+### [2.0.5] - September 2026
+- **Universal Portal Authentication Route Guard & Shell Lockdown:**
+  - **Portal Root Layout Guard (`app/(macqet)/layout.tsx`):**
+    - Replaced escrow-only auth guards with a universal layout-level defense wrapping all portal tabs (`/escrow`, `/profile`, `/marketplace`, `/trade/[orderId]`, `/support`, `/admin`, `/user`).
+    - During initialization (`!ready`), renders a full-page branded loading screen and strictly blocks child components from mounting to eliminate protected data leaks and visual layout flickers.
+    - When `ready && !authenticated`, immediately triggers `router.replace('/login')` and returns `null`, preventing protected DOM nodes from existing or persisting.
+  - **Centralized Universal Logout Architecture (`context/AuthContext.tsx` & `app/(macqet)/layout.tsx`):**
+    - Implemented `logoutUser` in `AuthContext` clearing Supabase authentication cookies and local storage tokens (`supabase.auth.signOut()`, `supabase.auth.token`, `sb-*`).
+    - Terminated Privy cryptographic session via `logout()`.
+    - Enforced hard browser window redirect (`window.location.href = '/login'`) across sidebar controls and profile settings to purge in-memory React state and Wagmi cache.
 
 ### [2.0.4] - September 2026
 - **Seller Email Lookup & Auth Sync Database Synchronization:**

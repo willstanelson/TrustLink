@@ -13,6 +13,7 @@ interface AuthContextType {
   sessionError: string | null;
   sessionToken: string | null;
   refreshSession: () => Promise<void>;
+  logoutUser: () => Promise<void>;
 }
 
 const supabaseBase = createClient(
@@ -23,7 +24,7 @@ const supabaseBase = createClient(
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { authenticated, getAccessToken } = usePrivy();
+  const { authenticated, getAccessToken, logout } = usePrivy();
   const [supabase, setSupabase] = useState<SupabaseClient>(supabaseBase);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [emailAddress, setEmailAddress] = useState<string | null>(null);
@@ -104,8 +105,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer); 
   }, [sessionReady, bootstrapSession]);
 
+  const logoutUser = useCallback(async () => {
+    try {
+      // 1. Clear Supabase auth cookies / local tokens
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Supabase signOut notice:', err);
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('supabase.auth.token');
+          sessionStorage.removeItem('supabase.auth.token');
+          document.cookie.split(';').forEach((c) => {
+            const eqPos = c.indexOf('=');
+            const name = eqPos > -1 ? c.substring(0, eqPos).trim() : c.trim();
+            if (name.toLowerCase().includes('supabase') || name.toLowerCase().includes('sb-')) {
+              document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+            }
+          });
+        } catch (storageErr) {
+          console.warn('Storage cleanup notice:', storageErr);
+        }
+      }
+
+      setSupabase(supabaseBase);
+      setWalletAddress(null);
+      setEmailAddress(null);
+      setSessionToken(null);
+      setSessionReady(false);
+
+      // 2. Call Privy logout
+      await logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      // 3. Hard-redirect via window.location.href to completely purge in-memory React state
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+  }, [supabase, logout]);
+
   return (
-    <AuthContext.Provider value={{ supabase, walletAddress, emailAddress, sessionReady, sessionLoading, sessionError, sessionToken, refreshSession: bootstrapSession }}>
+    <AuthContext.Provider
+      value={{
+        supabase,
+        walletAddress,
+        emailAddress,
+        sessionReady,
+        sessionLoading,
+        sessionError,
+        sessionToken,
+        refreshSession: bootstrapSession,
+        logoutUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

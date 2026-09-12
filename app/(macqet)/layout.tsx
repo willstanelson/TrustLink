@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useChainId } from 'wagmi';
+import { useAuth } from '@/context/AuthContext';
 import { CHAIN_CONFIG, DEFAULT_CHAIN_ID } from '@/app/constants';
 import {
   LayoutDashboard,
@@ -20,6 +21,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -75,6 +77,8 @@ function SidebarNavigation({ onCloseMobile }: { onCloseMobile?: () => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   const { authenticated, user, logout } = usePrivy();
+  const { logoutUser } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const chainId = useChainId();
   const activeChain = CHAIN_CONFIG[chainId] ?? CHAIN_CONFIG[DEFAULT_CHAIN_ID] ?? { name: 'Plasma Testnet' };
 
@@ -82,6 +86,34 @@ function SidebarNavigation({ onCloseMobile }: { onCloseMobile?: () => void }) {
     user?.email?.address ||
     user?.google?.email ||
     (user?.wallet?.address ? `${user.wallet.address.slice(0, 6)}…${user.wallet.address.slice(-4)}` : 'User');
+
+  const handleUniversalLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      if (logoutUser) {
+        await logoutUser();
+      } else {
+        await logout();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+      }
+    } catch (err) {
+      console.error('Universal logout failed in sidebar:', err);
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+  };
+
+  const handleSignIn = () => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    } else {
+      router.push('/login');
+    }
+  };
 
   return (
     <div className="flex flex-col h-full justify-between">
@@ -177,17 +209,18 @@ function SidebarNavigation({ onCloseMobile }: { onCloseMobile?: () => void }) {
             </div>
             <button
               type="button"
-              onClick={logout}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              onClick={handleUniversalLogout}
+              disabled={isLoggingOut}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
               title="Log Out"
             >
-              <LogOut className="w-4 h-4" />
+              {isLoggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
             </button>
           </div>
         ) : (
           <button
             type="button"
-            onClick={() => router.push('/login')}
+            onClick={handleSignIn}
             className="w-full py-2.5 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs transition-colors shadow-lg shadow-violet-600/20"
           >
             Sign In
@@ -205,30 +238,40 @@ export default function MacqetPortalLayout({
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { ready, authenticated } = usePrivy();
-  const pathname = usePathname();
   const router = useRouter();
 
-  const isEscrowRoute = pathname === '/escrow' || pathname?.startsWith('/escrow');
-
-  // Flicker-Free Auth Guard: If accessing /escrow while unauthenticated, redirect to /login
+  // 1. Universal Auth Guard: Immediately redirect unauthenticated visitors out of the entire (macqet) portal
   useEffect(() => {
-    if (ready && !authenticated && isEscrowRoute) {
+    if (ready && !authenticated) {
       router.replace('/login');
     }
-  }, [ready, authenticated, isEscrowRoute, router]);
+  }, [ready, authenticated, router]);
 
-  // While mounting or redirecting unauthenticated visitors, render a clean neutral screen
-  if (isEscrowRoute && (!ready || !authenticated)) {
+  // 2. While Privy authentication is initializing (!ready), render a full-page loading screen matching the dark theme.
+  // CRITICAL: children are NOT rendered here to prevent mounting protected components or leaking cached data.
+  if (!ready) {
     return (
       <div className="min-h-screen w-full bg-[#060812] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-violet-500/20 border-t-violet-500 animate-spin" />
-          <span className="text-xs text-slate-500 font-medium">Securing escrow session…</span>
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full border-2 border-violet-500/20 border-t-violet-500 animate-spin" />
+            <div className="absolute w-5 h-5 rounded-full bg-violet-500/10 animate-pulse" />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-semibold text-white tracking-wide">TrustLink Protocol</p>
+            <p className="text-xs text-slate-500 font-medium">Securing portal session…</p>
+          </div>
         </div>
       </div>
     );
   }
 
+  // 3. When ready but unauthenticated, return null so no protected portal content ever mounts or remains in the DOM
+  if (!authenticated) {
+    return null;
+  }
+
+  // 4. Authenticated state: Mount the portal layout and child routes
   return (
     <div className="flex min-h-screen bg-[#060812] text-white">
       {/* ── Fixed Desktop Left Sidebar (w-64) ── */}

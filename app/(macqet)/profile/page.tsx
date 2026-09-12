@@ -257,7 +257,7 @@ export default function ProfileAndWalletPage() {
 
   const { fundWallet } = useFundWallet();
   const { address: wagmiAddress } = useAccount();
-  const { supabase, sessionReady } = useAuth();
+  const { supabase, sessionReady, logoutUser } = useAuth();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const { rates, stale: ratesStale } = useLiveRates();
@@ -1940,7 +1940,7 @@ export default function ProfileAndWalletPage() {
 
               <button
                 type="button"
-                onClick={logout}
+                onClick={logoutUser || logout}
                 className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 py-3.5 rounded-2xl font-bold text-xs transition-all active:scale-95"
               >
                 <LogOut className="w-4 h-4" />
